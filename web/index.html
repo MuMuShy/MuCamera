@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MuMu Camera - Devices</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>MuMu Camera System</h1>
+            <div class="user-info">
+                <span id="username"></span>
+                <button id="logoutBtn" class="btn btn-secondary">Logout</button>
+            </div>
+        </header>
+
+        <main>
+            <section class="devices-section">
+                <h2>My Devices</h2>
+                <button id="refreshBtn" class="btn btn-primary">Refresh</button>
+                <button id="pairBtn" class="btn btn-primary">Pair Device</button>
+
+                <div id="devicesList" class="devices-list">
+                    <p class="loading">Loading devices...</p>
+                </div>
+            </section>
+
+            <section class="watch-section" id="watchSection" style="display: none;">
+                <h2>Watching: <span id="watchingDeviceName"></span></h2>
+                <button id="endWatchBtn" class="btn btn-danger">End Watch</button>
+
+                <div class="video-container">
+                    <video id="remoteVideo" autoplay playsinline></video>
+                    <div class="video-overlay">
+                        <div class="connection-status" id="connectionStatus">Connecting...</div>
+                    </div>
+                </div>
+
+                <div class="session-info">
+                    <p>Session ID: <span id="sessionId"></span></p>
+                    <p>Connection State: <span id="connectionState">New</span></p>
+                    <p>ICE State: <span id="iceState">New</span></p>
+                </div>
+            </section>
+        </main>
+
+        <!-- Pairing Modal -->
+        <div id="pairingModal" class="modal">
+            <div class="modal-content">
+                <span class="close">&times;</span>
+                <h2>Pair Device</h2>
+                <p>Enter the 6-digit pairing code displayed on your device:</p>
+                <input type="text" id="pairingCodeInput" maxlength="6" placeholder="000000">
+                <button id="submitPairingBtn" class="btn btn-primary">Pair</button>
+                <p id="pairingError" class="error"></p>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script src="webrtc.js"></script>
+</body>
+</html>
