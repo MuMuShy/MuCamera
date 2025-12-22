@@ -55,7 +55,7 @@ services:
       dockerfile: Dockerfile
     container_name: mumu-backend
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-mumucam}:${POSTGRES_PASSWORD:-mumucam123}@postgres:5432/${POSTGRES_DB:-mumucam}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mumucam}:${POSTGRES_PASSWORD:-mumucam123}@postgres:5432/${POSTGRES_DB:-mumucam}
       REDIS_URL: redis://redis:6379/0
       TURN_HOST: ${TURN_HOST:-coturn}
       TURN_PORT: ${TURN_PORT:-3478}
