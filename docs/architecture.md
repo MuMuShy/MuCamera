@@ -341,6 +341,228 @@ Device ↔ TURN ↔ Viewer  (fallback)
 - Sentry (error tracking)
 - ELK Stack (log aggregation)
 
+## Device Simulator Mode
+
+### Why It Exists
+
+The Device Simulator allows testing the complete MuMu Camera system **without any physical camera hardware**. This is crucial for:
+
+- **Development**: Test backend/frontend changes without Raspberry Pi
+- **CI/CD**: Automated testing in continuous integration
+- **Demos**: Show system capabilities without setup
+- **Learning**: Understand WebRTC flows without hardware complexity
+
+### Video Source Modes
+
+The device agent supports three video source modes:
+
+| Mode | Hardware | Use Case | Video Content |
+|------|----------|----------|---------------|
+| `fake` | None | Development, testing, CI/CD | Moving box animation on color bars |
+| `webcam` | System webcam | Desktop testing | Real webcam feed |
+| `camera` | Raspberry Pi camera | Production | Real camera feed (future) |
+
+### Fake Video Generation
+
+The `FakeVideoTrack` class generates animated test patterns:
+
+**Features**:
+- 640x480 resolution at 30fps
+- Color bar background (7 vertical bars)
+- White box that bounces around the frame
+- Frame counter progress bar in top-left
+- Pure CPU rendering (no GPU needed)
+- ~5-10% CPU usage on modern hardware
+
+**Implementation**:
+```python
+class FakeVideoTrack(VideoStreamTrack):
+    async def recv(self):
+        # Generate color bars background
+        img = self._create_color_bars()
+
+        # Draw bouncing box
+        self._draw_moving_box(img)
+
+        # Add frame counter
+        self._draw_counter(img)
+
+        # Return as av.VideoFrame
+        return av.VideoFrame.from_ndarray(img, format='bgr24')
+```
+
+### Switching Between Modes
+
+**Command Line**:
+```bash
+# Simulator mode (no hardware)
+python agent.py --video-source fake
+
+# Webcam mode
+python agent.py --video-source webcam
+
+# Raspberry Pi camera (future)
+python agent.py --video-source camera
+```
+
+**Environment Variables**:
+```bash
+export VIDEO_SOURCE=fake
+python agent.py
+```
+
+**Docker Compose**:
+```yaml
+device-sim:
+  environment:
+    VIDEO_SOURCE: fake  # or webcam
+```
+
+### Differences from Real Camera
+
+#### Similarities (Simulator Behaves Identically)
+- WebSocket connection and signaling
+- WebRTC peer connection setup
+- SDP offer/answer exchange
+- ICE candidate gathering
+- TURN server usage (if needed)
+- Session lifecycle management
+- Reconnection logic
+
+#### Differences
+- Video source only (no audio)
+- Synthetic video content
+- No hardware initialization
+- No camera permissions needed
+- Consistent performance (no light/focus issues)
+
+### Deployment Patterns
+
+#### 1. Local Development
+
+```bash
+# Terminal 1: Start services
+docker-compose up -d
+
+# Terminal 2: Run simulator
+cd device-agent
+python agent.py --device-id dev-cam-001
+```
+
+#### 2. Multiple Simulators
+
+```bash
+# Start 3 simulated devices
+python agent.py --device-id sim-001 &
+python agent.py --device-id sim-002 &
+python agent.py --device-id sim-003 &
+```
+
+#### 3. Docker Compose with Simulators
+
+```bash
+# Start all services + 3 simulators
+docker-compose --profile sim up -d
+```
+
+#### 4. CI/CD Integration
+
+```yaml
+# .github/workflows/e2e-test.yml
+- name: Start services
+  run: docker-compose up -d
+
+- name: Start simulator
+  run: docker-compose --profile sim up -d device-sim
+
+- name: Run E2E tests
+  run: npm run test:e2e
+
+- name: Check video streaming
+  run: ./test-scripts/verify-webrtc.sh
+```
+
+### Migration Path: Simulator → Real Camera
+
+**Phase 1: Development (Simulator)**
+```bash
+python agent.py --video-source fake
+```
+
+**Phase 2: Desktop Testing (Webcam)**
+```bash
+pip install opencv-python
+python agent.py --video-source webcam
+```
+
+**Phase 3: Production (Raspberry Pi)**
+```bash
+# On Raspberry Pi
+sudo apt-get install python3-picamera2
+python agent.py --video-source camera
+```
+
+Only `--video-source` changes. All other code remains the same.
+
+### Performance Characteristics
+
+#### Simulator (fake)
+- CPU: 5-10% (single core)
+- Memory: ~50-80 MB
+- Network: ~1-2 Mbps upstream
+- Latency: 50-100ms
+
+#### Webcam
+- CPU: 15-25% (encoding)
+- Memory: ~80-120 MB
+- Network: ~1-3 Mbps upstream
+- Latency: 100-200ms
+
+#### Real Camera (Raspberry Pi)
+- CPU: 10-20% (hardware encoding)
+- Memory: ~60-100 MB
+- Network: ~1-2 Mbps upstream
+- Latency: 80-150ms
+
+### Testing Recommendations
+
+1. **Always test with simulator first**: Verify signaling, ICE, TURN before hardware
+2. **Use multiple simulators**: Test concurrent sessions, load
+3. **Test reconnection**: Stop/start backend, verify agent reconnects
+4. **Test WebRTC states**: Monitor ICE connection states, peer connection states
+5. **Verify video playback**: Check browser console for errors, dropped frames
+
+### Known Limitations
+
+1. **No audio**: Simulator only generates video
+2. **Fixed resolution**: 640x480 (can be modified in code)
+3. **Synthetic content**: Not suitable for ML/AI training
+4. **No camera controls**: Can't adjust brightness, zoom, etc.
+
+### Extending the Simulator
+
+**Custom video patterns**:
+```python
+class CustomVideoTrack(VideoStreamTrack):
+    async def recv(self):
+        # Your custom video generation
+        img = generate_test_pattern()
+        return av.VideoFrame.from_ndarray(img, format='bgr24')
+```
+
+**Load from video file**:
+```python
+from aiortc.contrib.media import MediaPlayer
+player = MediaPlayer('test-video.mp4')
+pc.addTrack(player.video)
+```
+
+**RTSP stream relay**:
+```python
+player = MediaPlayer('rtsp://camera-ip/stream')
+pc.addTrack(player.video)
+```
+
 ## Future Enhancements
 
 1. **Audio Support**: Two-way audio communication

@@ -92,6 +92,68 @@ services:
     networks:
       - mumu-network
 
+  # Device Simulator (optional, use profile to enable)
+  # Usage: docker-compose --profile sim up device-sim
+  # Or: docker-compose --profile sim up -d
+  device-sim:
+    build:
+      context: ./device-agent
+      dockerfile: Dockerfile
+    container_name: mumu-device-sim
+    profiles:
+      - sim
+    environment:
+      BACKEND_URL: ws://backend:8000/ws/device
+      DEVICE_ID: ${DEVICE_ID:-simulator-001}
+      VIDEO_SOURCE: ${VIDEO_SOURCE:-fake}
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - mumu-network
+    restart: unless-stopped
+    command: python agent.py
+
+  # Multiple device simulators can be started with:
+  # docker-compose --profile sim up -d device-sim device-sim-2 device-sim-3
+  device-sim-2:
+    build:
+      context: ./device-agent
+      dockerfile: Dockerfile
+    container_name: mumu-device-sim-2
+    profiles:
+      - sim
+    environment:
+      BACKEND_URL: ws://backend:8000/ws/device
+      DEVICE_ID: simulator-002
+      VIDEO_SOURCE: fake
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - mumu-network
+    restart: unless-stopped
+    command: python agent.py
+
+  device-sim-3:
+    build:
+      context: ./device-agent
+      dockerfile: Dockerfile
+    container_name: mumu-device-sim-3
+    profiles:
+      - sim
+    environment:
+      BACKEND_URL: ws://backend:8000/ws/device
+      DEVICE_ID: simulator-003
+      VIDEO_SOURCE: fake
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - mumu-network
+    restart: unless-stopped
+    command: python agent.py
+
 networks:
   mumu-network:
     driver: bridge

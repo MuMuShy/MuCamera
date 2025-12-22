@@ -13,6 +13,32 @@ A distributed WebRTC-based camera streaming system with peer-to-peer video trans
 
 **Key Design Principle**: The central server does NOT relay video streams. All media flows peer-to-peer through WebRTC (with TURN fallback).
 
+## 🎯 No Raspberry Pi? No Problem!
+
+You can test the **complete system** using the **Device Simulator** with fake video - no camera hardware needed!
+
+**Quick test (5 minutes)**:
+```bash
+# Start services
+docker-compose up -d
+docker-compose exec backend alembic upgrade head
+
+# Start device simulator
+docker-compose --profile sim up -d device-sim
+
+# Open browser: http://localhost:8080
+# Register → Login → Pair Device → Watch!
+```
+
+See **[QUICKSTART_SIMULATOR.md](QUICKSTART_SIMULATOR.md)** for detailed instructions.
+
+**Features**:
+- ✅ Moving box animation (no camera needed)
+- ✅ Full WebRTC peer-to-peer streaming
+- ✅ Complete signaling flow (WebSocket, SDP, ICE)
+- ✅ TURN server integration
+- ✅ Works on Windows/Mac/Linux
+
 ## Quick Start
 
 ### Prerequisites
