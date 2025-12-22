@@ -26,7 +26,7 @@ class ConnectionManager:
 
     async def connect_device(self, device_id: str, websocket: WebSocket, db: AsyncSession):
         """Connect a device"""
-        await websocket.accept()
+        # await websocket.accept()
         self.device_connections[device_id] = websocket
         self.device_heartbeats[device_id] = datetime.utcnow()
 
