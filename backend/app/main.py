@@ -1,6 +1,6 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime, timedelta
@@ -436,6 +436,82 @@ async def generate_pairing_code(
         "expires_at": pairing_code.expires_at.isoformat(),
         "ttl": settings.PAIRING_CODE_TTL
     }
+
+
+@app.api_route("/api/devices/{device_id}/proxy/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def proxy_to_device(
+    device_id: str,
+    path: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """Proxy HTTP request to device's go2rtc instance"""
+    import uuid
+    import base64
+
+    # Check if device is online
+    if not manager.is_device_online(device_id):
+        raise HTTPException(status_code=503, detail="Device offline")
+
+    # Generate request ID
+    rid = str(uuid.uuid4())
+
+    # Get request body
+    body = await request.body()
+    body_b64 = base64.b64encode(body).decode('utf-8') if body else None
+
+    # Reconstruct full path with query string
+    full_path = f"/{path}"
+    if request.url.query:
+        full_path = f"{full_path}?{request.url.query}"
+
+    # Send proxy request to device
+    proxy_request = {
+        "type": "proxy_http",
+        "ts": datetime.utcnow().isoformat(),
+        "payload": {
+            "rid": rid,
+            "method": request.method,
+            "path": full_path,
+            "headers": dict(request.headers),
+            "body_b64": body_b64,
+            "timeout_ms": 30000
+        }
+    }
+
+    await manager.send_to_device(device_id, proxy_request)
+
+    # Wait for response (poll redis)
+    from app.redis_client import redis_client
+    import asyncio
+    import json as json_module
+
+    for _ in range(60):  # Wait up to 30 seconds (60 * 0.5s)
+        resp_json = await redis_client.get(f"proxy:response:{rid}")
+        if resp_json:
+            # Parse response
+            resp_data = json_module.loads(resp_json)
+            status = resp_data.get("status", 500)
+            resp_headers = resp_data.get("headers", {})
+            resp_body_b64 = resp_data.get("body_b64", "")
+
+            # Decode body
+            resp_body = base64.b64decode(resp_body_b64) if resp_body_b64 else b""
+
+            # Clean up
+            await redis_client.delete(f"proxy:response:{rid}")
+
+            # Return response
+            return Response(
+                content=resp_body,
+                status_code=status,
+                headers=resp_headers
+            )
+
+        await asyncio.sleep(0.5)
+
+    # Timeout
+    raise HTTPException(status_code=504, detail="Proxy timeout")
 
 
 if __name__ == "__main__":

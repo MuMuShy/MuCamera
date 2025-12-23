@@ -99,7 +99,7 @@ services:
   device-sim:
     build:
       context: ./device-agent
-      dockerfile: Dockerfile_fake
+      dockerfile: Dockerfile
     container_name: mumu-device-sim
     profiles:
       - sim
@@ -120,7 +120,7 @@ services:
   device-sim-2:
     build:
       context: ./device-agent
-      dockerfile: Dockerfile_fake
+      dockerfile: Dockerfile
     container_name: mumu-device-sim-2
     profiles:
       - sim
@@ -139,7 +139,7 @@ services:
   device-sim-3:
     build:
       context: ./device-agent
-      dockerfile: Dockerfile_fake
+      dockerfile: Dockerfile
     container_name: mumu-device-sim-3
     profiles:
       - sim

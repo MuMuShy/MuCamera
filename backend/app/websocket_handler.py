@@ -154,6 +154,10 @@ class ConnectionManager:
             except Exception as e:
                 print(f"Error sending to viewer {user_id}: {e}")
 
+    def is_device_online(self, device_id: str) -> bool:
+        """Check if device is currently connected"""
+        return device_id in self.device_connections
+
     async def update_heartbeat(self, identifier: str, is_device: bool):
         """Update heartbeat timestamp"""
         if is_device:
@@ -185,13 +189,22 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
 
     if msg_type == "hello":
         # Device connected, send acknowledgment
+        # Extract go2rtc info if present
+        agent_version = payload.get("agent_version")
+        go2rtc_http = payload.get("go2rtc_http")
+
+        # Store go2rtc_http in redis for later use
+        if go2rtc_http:
+            await redis_client.hset(f"device:go2rtc:{device_id}", "http_url", go2rtc_http)
+
         response = {
             "type": "hello_ack",
             "request_id": request_id,
             "ts": datetime.utcnow().isoformat(),
             "payload": {
                 "device_id": device_id,
-                "server_time": datetime.utcnow().isoformat()
+                "server_time": datetime.utcnow().isoformat(),
+                "agent_version": agent_version
             }
         }
         await manager.send_to_device(device_id, response)
@@ -206,6 +219,35 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
             "payload": {}
         }
         await manager.send_to_device(device_id, response)
+
+    elif msg_type == "capabilities":
+        # Device reporting go2rtc stream capabilities
+        streams = payload.get("streams", {})
+        # Store in Redis
+        await redis_client.hset(
+            f"device:capabilities:{device_id}",
+            "streams",
+            streams
+        )
+        await redis_client.hset(
+            f"device:capabilities:{device_id}",
+            "last_updated",
+            datetime.utcnow().isoformat()
+        )
+        print(f"Device {device_id} reported {len(streams)} streams")
+
+    elif msg_type == "proxy_http_resp":
+        # HTTP proxy response from device
+        import json as json_module
+        rid = payload.get("rid")
+        # Store response in redis with TTL for API endpoint to retrieve
+        if rid:
+            await redis_client.setex(
+                f"proxy:response:{rid}",
+                30,  # 30 second TTL
+                json_module.dumps(payload)
+            )
+            print(f"Stored proxy response for rid={rid}")
 
     elif msg_type == "signal_answer":
         # Forward SDP answer to viewer
