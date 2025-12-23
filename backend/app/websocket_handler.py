@@ -26,7 +26,7 @@ class ConnectionManager:
 
     async def connect_device(self, device_id: str, websocket: WebSocket, db: AsyncSession):
         """Connect a device"""
-        # await websocket.accept()
+        #await websocket.accept()
         self.device_connections[device_id] = websocket
         self.device_heartbeats[device_id] = datetime.utcnow()
 
@@ -94,7 +94,7 @@ class ConnectionManager:
 
     async def connect_viewer(self, user_id: str, websocket: WebSocket):
         """Connect a viewer"""
-        await websocket.accept()
+        # websocket.accept() is called in main.py before this method
         self.viewer_connections[user_id] = websocket
         self.viewer_heartbeats[user_id] = datetime.utcnow()
 
@@ -329,8 +329,8 @@ async def handle_viewer_message(user_id: str, message: dict, db: AsyncSession):
             "started_at": datetime.utcnow().isoformat()
         })
 
-        # Get ICE servers for viewer
-        ice_servers = get_ice_servers(f"viewer_{user_id}_{session_id}")
+        # Get ICE servers for viewer (use public host for browser access)
+        ice_servers = get_ice_servers(f"viewer_{user_id}_{session_id}", use_public_host=True)
 
         # Send to viewer
         await manager.send_to_viewer(user_id, {
@@ -343,8 +343,8 @@ async def handle_viewer_message(user_id: str, message: dict, db: AsyncSession):
             }
         })
 
-        # Notify device
-        device_ice_servers = get_ice_servers(f"device_{device_id}_{session_id}")
+        # Notify device (use internal Docker host)
+        device_ice_servers = get_ice_servers(f"device_{device_id}_{session_id}", use_public_host=False)
         await manager.send_to_device(device_id, {
             "type": "watch_request",
             "ts": datetime.utcnow().isoformat(),
@@ -359,6 +359,7 @@ async def handle_viewer_message(user_id: str, message: dict, db: AsyncSession):
         # Forward SDP offer to device
         session_id = payload.get("session_id")
         sdp = payload.get("sdp")
+        print(f"Handling signal_offer for session {session_id}")
 
         result = await db.execute(
             select(WatchSession).where(WatchSession.session_id == session_id)
@@ -366,6 +367,7 @@ async def handle_viewer_message(user_id: str, message: dict, db: AsyncSession):
         session = result.scalar_one_or_none()
 
         if session:
+            print(f"Session found: {session.session_id}, device_id: {session.device_id}")
             # Update session status
             session.status = "active"
             await db.commit()
@@ -377,6 +379,7 @@ async def handle_viewer_message(user_id: str, message: dict, db: AsyncSession):
             device = result_device.scalar_one_or_none()
 
             if device:
+                print(f"Forwarding offer to device {device.device_id}")
                 await manager.send_to_device(device.device_id, {
                     "type": "signal_offer",
                     "ts": datetime.utcnow().isoformat(),
@@ -385,6 +388,10 @@ async def handle_viewer_message(user_id: str, message: dict, db: AsyncSession):
                         "sdp": sdp
                     }
                 })
+            else:
+                print(f"Device not found for session {session_id}")
+        else:
+            print(f"Session not found: {session_id}")
 
     elif msg_type == "signal_ice":
         # Forward ICE candidate to device

@@ -24,6 +24,7 @@ import os
 from datetime import datetime
 from typing import Optional, Dict
 import uuid
+import aiohttp
 
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, RTCConfiguration, RTCIceServer
 from aiortc.contrib.media import MediaBlackhole
@@ -230,7 +231,53 @@ class CameraDeviceAgent:
         self.heartbeat_task: Optional[asyncio.Task] = None
         self.heartbeat_interval = 15  # 15 seconds
 
+        # HTTP API URL (extract from WebSocket URL)
+        self.http_url = self._get_http_url(backend_url)
+
         logger.info(f"Device Agent initialized: {device_id}, video source: {video_source}")
+
+    def _get_http_url(self, ws_url: str) -> str:
+        """Convert WebSocket URL to HTTP URL for API calls"""
+        # ws://backend:8000/ws/device -> http://backend:8000
+        # wss://backend:8000/ws/device -> https://backend:8000
+        if ws_url.startswith("ws://"):
+            http_url = ws_url.replace("ws://", "http://")
+        elif ws_url.startswith("wss://"):
+            http_url = ws_url.replace("wss://", "https://")
+        else:
+            http_url = ws_url
+
+        # Remove /ws/device path
+        if "/ws/device" in http_url:
+            http_url = http_url.replace("/ws/device", "")
+
+        return http_url
+
+    async def register_device(self):
+        """Register device with backend API"""
+        try:
+            register_url = f"{self.http_url}/api/devices/register"
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    register_url,
+                    json={
+                        "device_id": self.device_id,
+                        "device_name": f"Simulator {self.device_id}",
+                        "device_type": "camera"
+                    }
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        logger.info(f"✓ Device registered: {data.get('message')}")
+                        return True
+                    else:
+                        error_text = await resp.text()
+                        logger.error(f"Failed to register device: {resp.status} - {error_text}")
+                        return False
+        except Exception as e:
+            logger.error(f"Error registering device: {e}")
+            return False
 
     async def connect(self):
         """Connect to backend WebSocket with exponential backoff"""
@@ -481,13 +528,19 @@ class CameraDeviceAgent:
                 logger.error(f"No peer connection for session {session_id}")
                 return
 
-            if candidate_data:
-                from aiortc import RTCIceCandidate
-                candidate = RTCIceCandidate(
-                    sdpMid=candidate_data.get("sdpMid"),
-                    sdpMLineIndex=candidate_data.get("sdpMLineIndex"),
-                    candidate=candidate_data.get("candidate")
-                )
+            if candidate_data and candidate_data.get("candidate"):
+                from aiortc.sdp import candidate_from_sdp
+
+                # Parse ICE candidate from SDP string
+                candidate_str = candidate_data.get("candidate")
+                sdp_mid = candidate_data.get("sdpMid")
+                sdp_mline_index = candidate_data.get("sdpMLineIndex")
+
+                # Create RTCIceCandidate from SDP string
+                candidate = candidate_from_sdp(candidate_str)
+                candidate.sdpMid = sdp_mid
+                candidate.sdpMLineIndex = sdp_mline_index
+
                 await pc.addIceCandidate(candidate)
                 logger.debug(f"✓ Added ICE candidate for session {session_id}")
 
@@ -541,6 +594,12 @@ class CameraDeviceAgent:
         logger.info(f"Video Source: {self.video_source}")
         logger.info(f"Backend: {self.backend_url}")
         logger.info(f"================================")
+
+        # Register device with backend first
+        logger.info("Registering device with backend...")
+        await self.register_device()
+
+        # Connect to WebSocket
         await self.connect()
 
     async def stop(self):

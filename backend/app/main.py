@@ -386,6 +386,7 @@ async def viewer_websocket(websocket: WebSocket, db: AsyncSession = Depends(get_
         # Handle messages
         while True:
             data = await websocket.receive_json()
+            print(f"Viewer {user_id} sent message: {data.get('type')}")
             await handle_viewer_message(user_id, data, db)
 
     except WebSocketDisconnect:

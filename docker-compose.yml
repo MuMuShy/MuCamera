@@ -58,6 +58,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mumucam}:${POSTGRES_PASSWORD:-mumucam123}@postgres:5432/${POSTGRES_DB:-mumucam}
       REDIS_URL: redis://redis:6379/0
       TURN_HOST: ${TURN_HOST:-coturn}
+      TURN_PUBLIC_HOST: ${TURN_PUBLIC_HOST:-localhost}
       TURN_PORT: ${TURN_PORT:-3478}
       TURN_SECRET: ${TURN_SECRET:-mumucam_turn_secret_key}
       JWT_SECRET: ${JWT_SECRET:-mumucam_jwt_secret_key_change_in_production}
@@ -98,7 +99,7 @@ services:
   device-sim:
     build:
       context: ./device-agent
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile_fake
     container_name: mumu-device-sim
     profiles:
       - sim
@@ -119,7 +120,7 @@ services:
   device-sim-2:
     build:
       context: ./device-agent
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile_fake
     container_name: mumu-device-sim-2
     profiles:
       - sim
@@ -138,7 +139,7 @@ services:
   device-sim-3:
     build:
       context: ./device-agent
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile_fake
     container_name: mumu-device-sim-3
     profiles:
       - sim

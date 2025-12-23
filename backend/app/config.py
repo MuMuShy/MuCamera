@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     REDIS_ENABLED: bool = True
 
     # TURN Server
-    TURN_HOST: str = "coturn"
+    TURN_HOST: str = "coturn"  # Internal Docker network hostname
+    TURN_PUBLIC_HOST: str = "localhost"  # Public hostname for browsers
     TURN_PORT: int = 3478
     TURN_SECRET: str = "mumucam_turn_secret_key"
     TURN_TTL: int = 86400  # 24 hours
