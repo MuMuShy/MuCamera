@@ -1,0 +1,31 @@
+[Unit]
+Description=MuMu Camera Device Agent
+After=network-online.target go2rtc.service
+Wants=network-online.target
+Requires=go2rtc.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/mumucam
+EnvironmentFile=/etc/mumucam/agent.env
+ExecStart=/opt/mumucam/venv/bin/python /opt/mumucam/agent.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Graceful shutdown
+TimeoutStopSec=30
+KillMode=mixed
+
+# Security
+PrivateTmp=true
+NoNewPrivileges=true
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

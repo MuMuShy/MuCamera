@@ -1,0 +1,39 @@
+# Cloudflare Tunnel Configuration for Backend Server
+# Place this file at /etc/cloudflared/config.yml
+
+# Replace with your tunnel ID (get from: cloudflared tunnel create mumucam-backend)
+tunnel: mumucam-backend
+
+# Replace with your credentials file path
+credentials-file: /root/.cloudflared/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.json
+
+ingress:
+  # WebSocket for Device Agent
+  - hostname: backend.your-domain.com
+    path: /ws/device
+    service: ws://localhost:8000
+    originRequest:
+      noTLSVerify: true
+      connectTimeout: 30s
+      http2Origin: false
+      disableChunkedEncoding: true
+
+  # WebSocket for Web Viewer
+  - hostname: backend.your-domain.com
+    path: /ws/viewer
+    service: ws://localhost:8000
+    originRequest:
+      noTLSVerify: true
+      connectTimeout: 30s
+      http2Origin: false
+      disableChunkedEncoding: true
+
+  # HTTP API
+  - hostname: backend.your-domain.com
+    service: http://localhost:8000
+    originRequest:
+      noTLSVerify: true
+      connectTimeout: 30s
+
+  # Catch-all rule (required)
+  - service: http_status:404

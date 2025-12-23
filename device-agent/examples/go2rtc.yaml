@@ -1,0 +1,63 @@
+# go2rtc Configuration Example
+# Place this file at /etc/go2rtc/go2rtc.yaml
+
+api:
+  listen: "127.0.0.1:1984"
+
+streams:
+  # RTSP Camera Example
+  cam:
+    - rtsp://admin:password@192.168.1.100:554/stream1
+    # Fallback source (optional)
+    # - rtsp://admin:password@192.168.1.101:554/stream1
+
+  # Multiple Cameras
+  front_door:
+    - rtsp://admin:password@192.168.1.100:554/stream1
+
+  backyard:
+    - rtsp://admin:password@192.168.1.101:554/stream1
+
+  garage:
+    - rtsp://admin:password@192.168.1.102:554/stream1
+
+  # Raspberry Pi Camera Module (using FFmpeg)
+  picam:
+    - ffmpeg:device?video=/dev/video0&input_format=h264&video_size=1920x1080&framerate=30
+
+  # USB Webcam
+  webcam:
+    - ffmpeg:device?video=/dev/video0&input_format=mjpeg&video_size=1280x720
+
+  # RTMP Input Example
+  rtmp_stream:
+    - rtmp://localhost:1935/live/stream
+
+  # HTTP/HTTPS URL Example (for IP cameras with HTTP stream)
+  http_cam:
+    - http://192.168.1.100:8080/video.mjpeg
+
+log:
+  # Log levels: trace, debug, info, warn, error
+  level: info
+
+  # Optional: log to file
+  # file: /var/log/go2rtc.log
+
+# Optional: RTSP server configuration
+rtsp:
+  listen: ":8554"
+  # username: admin
+  # password: password
+
+# Optional: WebRTC configuration
+webrtc:
+  listen: ":8555/tcp"
+
+  # ICE servers (for NAT traversal)
+  ice_servers:
+    - urls: [stun:stun.l.google.com:19302]
+
+# Optional: HLS configuration
+# hls:
+#   listen: ":8888"
