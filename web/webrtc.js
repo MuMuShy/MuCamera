@@ -71,7 +71,7 @@ async function startMSEStream(deviceId) {
     try {
         updateConnectionStatus('Connecting');
 
-        const videoElement = document.getElementById('videoStream');
+        const videoElement = document.getElementById('remoteVideo');
 
         // Construct proxy URL to go2rtc MSE endpoint
         // go2rtc MSE endpoint: /api/stream.mp4?src=cam
@@ -150,7 +150,7 @@ function sendMessage(message) {
 function stopStream() {
     isStreamingActive = false;
 
-    const videoElement = document.getElementById('videoStream');
+    const videoElement = document.getElementById('remoteVideo');
     if (videoElement) {
         videoElement.pause();
         videoElement.src = '';
@@ -166,6 +166,13 @@ function stopStream() {
     streamUrl = null;
 
     updateConnectionStatus('Disconnected');
+}
+
+/**
+ * End watching (alias for stopStream for compatibility)
+ */
+function endWatching() {
+    stopStream();
 }
 
 /**
