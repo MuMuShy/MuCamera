@@ -331,6 +331,10 @@ class Go2RTCProxyAgent:
                 self._pending_proxy_tasks[rid] = task
                 task.add_done_callback(lambda t: self._pending_proxy_tasks.pop(rid, None))
 
+        # Legacy WebRTC signaling messages (ignored in proxy mode)
+        elif msg_type in ["watch_request", "signal_offer", "signal_answer", "signal_ice", "watch_ended"]:
+            logger.debug(f"[ws] Ignoring legacy message: {msg_type} (Backend should use proxy_http in go2rtc mode)")
+
         else:
             logger.warning(f"[ws] ? Unknown message type: {msg_type}")
 
