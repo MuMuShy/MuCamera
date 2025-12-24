@@ -502,11 +502,25 @@ async def proxy_to_device(
             # Clean up
             await redis_client.delete(f"proxy:response:{rid}")
 
+            # Clean up headers to avoid HTTP protocol violations
+            # Remove Transfer-Encoding if Content-Length is present
+            headers_clean = dict(resp_headers)
+            if "content-length" in headers_clean and "transfer-encoding" in headers_clean:
+                del headers_clean["transfer-encoding"]
+                print(f"[proxy] Removed Transfer-Encoding header (conflict with Content-Length)")
+
+            # Also normalize header names to lowercase for case-insensitive comparison
+            headers_normalized = {}
+            for k, v in headers_clean.items():
+                k_lower = k.lower()
+                if k_lower not in headers_normalized:
+                    headers_normalized[k_lower] = v
+
             # Return response
             return Response(
                 content=resp_body,
                 status_code=status,
-                headers=resp_headers
+                headers=headers_normalized
             )
 
         await asyncio.sleep(0.5)
