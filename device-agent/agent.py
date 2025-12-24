@@ -378,7 +378,7 @@ class Go2RTCProxyAgent:
 
                     resp_body_b64 = base64.b64encode(resp_body).decode('utf-8')
 
-                    await self._send_message_safe({
+                    response_sent = await self._send_message_safe({
                         "type": "proxy_http_resp",
                         "ts": datetime.utcnow().isoformat(),
                         "payload": {
@@ -389,7 +389,10 @@ class Go2RTCProxyAgent:
                         }
                     })
 
-                    logger.info(f"[proxy] {method} {path} → {status} ({len(resp_body)} bytes)")
+                    if response_sent:
+                        logger.info(f"[proxy] {method} {path} → {status} ({len(resp_body)} bytes) ✓ Response sent")
+                    else:
+                        logger.error(f"[proxy] {method} {path} → {status} ({len(resp_body)} bytes) ✗ Failed to send response")
 
         except asyncio.TimeoutError:
             logger.error(f"[proxy] Timeout for rid={rid}")

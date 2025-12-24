@@ -479,6 +479,7 @@ async def proxy_to_device(
         }
     }
 
+    print(f"[proxy] Sending request to device {device_id}, rid={rid}, path={full_path}")
     await manager.send_to_device(device_id, proxy_request)
 
     # Wait for response (poll redis)
@@ -486,9 +487,10 @@ async def proxy_to_device(
     import asyncio
     import json as json_module
 
-    for _ in range(60):  # Wait up to 30 seconds (60 * 0.5s)
+    for attempt in range(60):  # Wait up to 30 seconds (60 * 0.5s)
         resp_json = await redis_client.get(f"proxy:response:{rid}")
         if resp_json:
+            print(f"[proxy] Got response from Redis for rid={rid} after {attempt * 0.5}s")
             # Parse response
             resp_data = json_module.loads(resp_json)
             status = resp_data.get("status", 500)
@@ -511,6 +513,7 @@ async def proxy_to_device(
         await asyncio.sleep(0.5)
 
     # Timeout
+    print(f"[proxy] ✗ Timeout waiting for response rid={rid} from device {device_id}")
     raise HTTPException(status_code=504, detail="Proxy timeout")
 
 

@@ -240,6 +240,7 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
         # HTTP proxy response from device
         import json as json_module
         rid = payload.get("rid")
+        status = payload.get("status", "unknown")
         # Store response in redis with TTL for API endpoint to retrieve
         if rid:
             await redis_client.setex(
@@ -247,7 +248,9 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
                 30,  # 30 second TTL
                 json_module.dumps(payload)
             )
-            print(f"Stored proxy response for rid={rid}")
+            print(f"✓ Stored proxy response for rid={rid}, status={status}, device={device_id}")
+        else:
+            print(f"✗ Received proxy_http_resp without rid from device={device_id}")
 
     elif msg_type == "signal_answer":
         # Forward SDP answer to viewer
