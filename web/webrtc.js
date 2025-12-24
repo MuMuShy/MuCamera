@@ -7,8 +7,20 @@
  * - Simpler and more reliable
  */
 
-const API_BASE = window.location.origin.replace(':8080', ':8000');
+// Detect API base URL
+// If accessed via Nginx (port 80/443), use same origin
+// If accessed directly (port 8080), use port 8000 instead
+const API_BASE = window.location.port === '8080'
+    ? window.location.origin.replace(':8080', ':8000')
+    : window.location.origin;
+
 const WS_BASE = API_BASE.replace('http', 'ws');
+
+// Debug logging
+console.log('[MuMu Camera] Origin:', window.location.origin);
+console.log('[MuMu Camera] Port:', window.location.port);
+console.log('[MuMu Camera] API_BASE:', API_BASE);
+console.log('[MuMu Camera] WS_BASE:', WS_BASE);
 
 let ws = null;
 let mediaSource = null;
