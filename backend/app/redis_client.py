@@ -46,6 +46,27 @@ class RedisClient:
             print(f"Redis SET error: {e}")
             return False
 
+    async def setex(self, key: str, seconds: int, value: Any) -> bool:
+        """Set a key-value pair with expiration
+
+        Note: If value is already a JSON string, it will be stored as-is.
+        If value is a dict/list, it will be JSON encoded.
+        """
+        try:
+            if self.redis:
+                # Store value as-is if it's already a string, otherwise encode it
+                value_str = value if isinstance(value, str) else json.dumps(value)
+                await self.redis.setex(key, seconds, value_str)
+                return True
+            else:
+                # In-memory fallback (no expiration support)
+                value_str = value if isinstance(value, str) else json.dumps(value)
+                self._memory_store[key] = value_str
+                return True
+        except Exception as e:
+            print(f"Redis SETEX error: {e}")
+            return False
+
     async def get(self, key: str) -> Optional[Any]:
         """Get a value by key"""
         try:
