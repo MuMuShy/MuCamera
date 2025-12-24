@@ -1,10 +1,10 @@
 /**
- * MuMu Camera Web Client - go2rtc MSE Streaming
+ * MuMu Camera Web Client - go2rtc WebRTC Streaming
  *
- * New architecture using go2rtc proxy mode:
- * - No WebRTC signaling needed
- * - Direct MSE streaming through Backend proxy
- * - Simpler and more reliable
+ * New architecture using go2rtc WebRTC:
+ * - Direct WebRTC to go2rtc through Backend proxy
+ * - No signaling needed, go2rtc handles it via HTTP
+ * - Simple and reliable
  */
 
 // Prevent multiple loading issues
@@ -16,8 +16,6 @@ if (typeof window.MuMuCamera === 'undefined') {
     'use strict';
 
     // Detect API base URL
-    // If accessed via Nginx (port 80/443), use same origin
-    // If accessed directly (port 8080), use port 8000 instead
     const API_BASE = window.location.port === '8080'
         ? window.location.origin.replace(':8080', ':8000')
         : window.location.origin;
@@ -31,33 +29,33 @@ if (typeof window.MuMuCamera === 'undefined') {
     console.log('[MuMu Camera] WS_BASE:', WS_BASE);
 
     let ws = null;
+    let pc = null;
     let currentDeviceId = null;
-    let streamUrl = null;
     let isStreamingActive = false;
 
     /**
-     * Initialize video stream for a device using go2rtc MSE
+     * Initialize WebRTC connection using go2rtc
      */
     window.initializeWebRTC = async function(deviceId) {
         currentDeviceId = deviceId;
 
         try {
-            // Connect to WebSocket for status updates only
+            updateConnectionStatus('Connecting');
+
+            // Connect to WebSocket for status updates
             ws = new WebSocket(`${WS_BASE}/ws/viewer`);
             const token = localStorage.getItem('token');
 
             ws.onopen = async () => {
                 console.log('WebSocket connected for status updates');
-
-                // Send hello message
                 sendMessage({
                     type: 'hello',
                     ts: new Date().toISOString(),
                     payload: { token: token }
                 });
 
-                // Start MSE streaming
-                await startMSEStream(deviceId);
+                // Start WebRTC connection to go2rtc
+                await startWebRTC(deviceId);
             };
 
             ws.onmessage = async (event) => {
@@ -83,47 +81,82 @@ if (typeof window.MuMuCamera === 'undefined') {
     };
 
     /**
-     * Start MSE streaming from go2rtc through proxy
+     * Start WebRTC connection to go2rtc through proxy
      */
-    async function startMSEStream(deviceId) {
+    async function startWebRTC(deviceId) {
         try {
-            updateConnectionStatus('Connecting');
+            console.log('Starting WebRTC connection to go2rtc');
 
-            const videoElement = document.getElementById('remoteVideo');
-
-            // Construct proxy URL to go2rtc MSE endpoint
-            // go2rtc MSE endpoint: /api/stream.mp4?src=cam
-            streamUrl = `${API_BASE}/api/devices/${deviceId}/proxy/api/stream.mp4?src=cam`;
-
-            console.log('Starting MSE stream:', streamUrl);
-
-            // Use native video element with progressive download
-            videoElement.src = streamUrl;
-            videoElement.play().catch(err => {
-                console.error('Error playing video:', err);
-                updateConnectionStatus('Error');
+            // Create RTCPeerConnection
+            pc = new RTCPeerConnection({
+                iceServers: [{urls: 'stun:stun.l.google.com:19302'}]
             });
 
-            videoElement.onloadedmetadata = () => {
-                console.log('Stream metadata loaded');
-                updateConnectionStatus('Connected');
-                isStreamingActive = true;
+            // Set up video element
+            const videoElement = document.getElementById('remoteVideo');
+
+            pc.ontrack = (event) => {
+                console.log('Received track:', event.track.kind);
+                if (event.streams && event.streams[0]) {
+                    videoElement.srcObject = event.streams[0];
+                    updateConnectionStatus('Connected');
+                    isStreamingActive = true;
+                }
             };
 
-            videoElement.onplay = () => {
-                console.log('Stream started playing');
-                updateConnectionStatus('Streaming');
+            pc.oniceconnectionstatechange = () => {
+                console.log('ICE connection state:', pc.iceConnectionState);
+                if (pc.iceConnectionState === 'connected') {
+                    updateConnectionStatus('Streaming');
+                } else if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+                    updateConnectionStatus('Disconnected');
+                }
             };
 
-            videoElement.onerror = (err) => {
-                console.error('Video element error:', err);
-                updateConnectionStatus('Error');
-                isStreamingActive = false;
-            };
+            // Add transceiver for receiving video
+            pc.addTransceiver('video', {direction: 'recvonly'});
+            pc.addTransceiver('audio', {direction: 'recvonly'});
+
+            // Create offer
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            console.log('Sending offer to go2rtc via proxy');
+
+            // Send offer to go2rtc's WebRTC endpoint via proxy
+            // go2rtc WebRTC endpoint: POST /api/webrtc?src=cam
+            const response = await fetch(
+                `${API_BASE}/api/devices/${deviceId}/proxy/api/webrtc?src=cam`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({
+                        data: btoa(offer.sdp)
+                    })
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error(`go2rtc WebRTC failed: ${response.status} ${response.statusText}`);
+            }
+
+            const answerSDP = await response.text();
+            console.log('Received answer from go2rtc');
+
+            // Set remote description
+            await pc.setRemoteDescription({
+                type: 'answer',
+                sdp: atob(answerSDP)
+            });
+
+            console.log('WebRTC connection established');
 
         } catch (error) {
-            console.error('Error starting MSE stream:', error);
+            console.error('Error starting WebRTC:', error);
             updateConnectionStatus('Error');
+            alert('Failed to start video stream: ' + error.message);
         }
     }
 
@@ -136,10 +169,6 @@ if (typeof window.MuMuCamera === 'undefined') {
         switch (message.type) {
             case 'hello_ack':
                 console.log('Server acknowledged connection');
-                break;
-
-            case 'heartbeat_ack':
-                // Server heartbeat
                 break;
 
             case 'device_offline':
@@ -170,9 +199,12 @@ if (typeof window.MuMuCamera === 'undefined') {
 
         const videoElement = document.getElementById('remoteVideo');
         if (videoElement) {
-            videoElement.pause();
-            videoElement.src = '';
-            videoElement.load();
+            videoElement.srcObject = null;
+        }
+
+        if (pc) {
+            pc.close();
+            pc = null;
         }
 
         if (ws) {
@@ -181,13 +213,11 @@ if (typeof window.MuMuCamera === 'undefined') {
         }
 
         currentDeviceId = null;
-        streamUrl = null;
-
         updateConnectionStatus('Disconnected');
     }
 
     /**
-     * End watching (alias for stopStream for compatibility)
+     * End watching
      */
     window.endWatching = function() {
         stopStream();
