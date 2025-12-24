@@ -238,7 +238,6 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
 
     elif msg_type == "proxy_http_resp":
         # HTTP proxy response from device
-        import json as json_module
         rid = payload.get("rid")
         status = payload.get("status", "unknown")
         # Store response in redis with TTL for API endpoint to retrieve
@@ -246,7 +245,7 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
             await redis_client.setex(
                 f"proxy:response:{rid}",
                 30,  # 30 second TTL
-                json_module.dumps(payload)
+                payload  # setex will handle JSON encoding
             )
             print(f"✓ Stored proxy response for rid={rid}, status={status}, device={device_id}")
         else:

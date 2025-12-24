@@ -488,11 +488,10 @@ async def proxy_to_device(
     import json as json_module
 
     for attempt in range(60):  # Wait up to 30 seconds (60 * 0.5s)
-        resp_json = await redis_client.get(f"proxy:response:{rid}")
-        if resp_json:
+        resp_data = await redis_client.get(f"proxy:response:{rid}")
+        if resp_data:
             print(f"[proxy] Got response from Redis for rid={rid} after {attempt * 0.5}s")
-            # Parse response
-            resp_data = json_module.loads(resp_json)
+            # Parse response (already decoded by redis_client.get)
             status = resp_data.get("status", 500)
             resp_headers = resp_data.get("headers", {})
             resp_body_b64 = resp_data.get("body_b64", "")
