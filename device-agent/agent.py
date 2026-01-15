@@ -356,11 +356,15 @@ class Go2RTCProxyAgent:
         action = payload.get("action")
 
         logger.info(f"[ptz] Received command: {action} (rid={rid})")
+        logger.info(f"[ptz] Payload: {payload}")
 
         if not self.onvif_controller:
+            logger.error("[ptz] ONVIF controller not configured - check ONVIF_IP environment variable")
             result = {"success": False, "error": "ONVIF not configured"}
             await self._send_ptz_response(rid, result)
             return
+
+        logger.info(f"[ptz] ONVIF controller exists, executing {action}...")
 
         try:
             if action == "move":
@@ -392,10 +396,11 @@ class Go2RTCProxyAgent:
             else:
                 result = {"success": False, "error": f"Unknown action: {action}"}
 
+            logger.info(f"[ptz] Action {action} result: {result}")
             await self._send_ptz_response(rid, result)
 
         except Exception as e:
-            logger.error(f"[ptz] Error handling command: {e}", exc_info=True)
+            logger.error(f"[ptz] Error handling command {action}: {e}", exc_info=True)
             await self._send_ptz_response(rid, {"success": False, "error": str(e)})
 
     async def _send_ptz_response(self, rid: str, result: dict):
@@ -580,6 +585,11 @@ class Go2RTCProxyAgent:
         logger.info(f"Agent Version: {AGENT_VERSION}")
         logger.info(f"go2rtc HTTP: {self.go2rtc_http}")
         logger.info(f"Backend: {self.backend_url}")
+        if self.onvif_controller:
+            logger.info(f"ONVIF PTZ: ENABLED ({self.onvif_controller.config.ip}:{self.onvif_controller.config.port})")
+            logger.info(f"ONVIF WSDL: {self.onvif_controller.config.wsdl_dir}")
+        else:
+            logger.info(f"ONVIF PTZ: DISABLED (set ONVIF_IP to enable)")
         logger.info(f"================================================")
 
         self._go2rtc_health_task = asyncio.create_task(self.go2rtc_health_monitor())
