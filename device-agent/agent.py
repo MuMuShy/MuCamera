@@ -25,6 +25,8 @@ import aiohttp
 import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
+from onvif_controller import ONVIFController, ONVIFConfig
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -50,12 +52,19 @@ class Go2RTCProxyAgent:
         backend_url: str,
         device_id: str,
         device_secret: Optional[str] = None,
-        go2rtc_http: str = "http://127.0.0.1:1984"
+        go2rtc_http: str = "http://127.0.0.1:1984",
+        onvif_config: Optional[ONVIFConfig] = None
     ):
         self.backend_url = backend_url
         self.device_id = device_id
         self.device_secret = device_secret
         self.go2rtc_http = go2rtc_http
+
+        # ONVIF PTZ Controller
+        self.onvif_controller: Optional[ONVIFController] = None
+        if onvif_config:
+            self.onvif_controller = ONVIFController(onvif_config)
+            logger.info(f"[onvif] PTZ control enabled for {onvif_config.ip}")
 
         self.state = ConnectionState.DISCONNECTED
         self.ws: Optional[websockets.WebSocketClientProtocol] = None
@@ -331,12 +340,74 @@ class Go2RTCProxyAgent:
                 self._pending_proxy_tasks[rid] = task
                 task.add_done_callback(lambda t: self._pending_proxy_tasks.pop(rid, None))
 
+        elif msg_type == "ptz_control":
+            asyncio.create_task(self._handle_ptz_control(payload))
+
         # Legacy WebRTC signaling messages (ignored in proxy mode)
         elif msg_type in ["watch_request", "signal_offer", "signal_answer", "signal_ice", "watch_ended"]:
             logger.debug(f"[ws] Ignoring legacy message: {msg_type} (Backend should use proxy_http in go2rtc mode)")
 
         else:
             logger.warning(f"[ws] ? Unknown message type: {msg_type}")
+
+    async def _handle_ptz_control(self, payload: dict):
+        """Handle PTZ control commands"""
+        rid = payload.get("rid")
+        action = payload.get("action")
+
+        logger.info(f"[ptz] Received command: {action} (rid={rid})")
+
+        if not self.onvif_controller:
+            result = {"success": False, "error": "ONVIF not configured"}
+            await self._send_ptz_response(rid, result)
+            return
+
+        try:
+            if action == "move":
+                pan = float(payload.get("pan", 0))
+                tilt = float(payload.get("tilt", 0))
+                zoom = float(payload.get("zoom", 0))
+                duration = float(payload.get("duration", 0.5))
+                result = await self.onvif_controller.move(pan, tilt, zoom, duration)
+
+            elif action == "stop":
+                result = await self.onvif_controller.stop()
+
+            elif action == "focus":
+                direction = payload.get("direction", "near")
+                speed = float(payload.get("speed", 0.5))
+                duration = float(payload.get("duration", 0.3))
+                result = await self.onvif_controller.focus(direction, speed, duration)
+
+            elif action == "auto_focus":
+                result = await self.onvif_controller.auto_focus()
+
+            elif action == "preset":
+                preset_num = int(payload.get("preset", 1))
+                result = await self.onvif_controller.go_to_preset(preset_num)
+
+            elif action == "capabilities":
+                result = await self.onvif_controller.get_capabilities()
+
+            else:
+                result = {"success": False, "error": f"Unknown action: {action}"}
+
+            await self._send_ptz_response(rid, result)
+
+        except Exception as e:
+            logger.error(f"[ptz] Error handling command: {e}", exc_info=True)
+            await self._send_ptz_response(rid, {"success": False, "error": str(e)})
+
+    async def _send_ptz_response(self, rid: str, result: dict):
+        """Send PTZ control response"""
+        await self._send_message_safe({
+            "type": "ptz_control_resp",
+            "ts": datetime.utcnow().isoformat(),
+            "payload": {
+                "rid": rid,
+                **result
+            }
+        })
 
     async def _handle_proxy_http(self, payload: dict):
         """Handle HTTP proxy request to go2rtc"""
@@ -571,6 +642,13 @@ Environment Variables:
   DEVICE_SECRET   - Optional device authentication secret
   GO2RTC_HTTP     - go2rtc HTTP API URL (default: http://127.0.0.1:1984)
 
+  ONVIF PTZ Control (optional):
+  ONVIF_IP        - ONVIF camera IP address
+  ONVIF_PORT      - ONVIF camera port (default: 80)
+  ONVIF_USER      - ONVIF camera username (default: admin)
+  ONVIF_PASS      - ONVIF camera password
+  ONVIF_WSDL_DIR  - ONVIF WSDL directory (default: /opt/mumucam/onvif/wsdl)
+
 Examples:
   # Run with default settings
   DEVICE_ID=pi-cam-001 python agent.py
@@ -578,8 +656,8 @@ Examples:
   # Run with custom backend
   BACKEND_URL=wss://myserver.com/ws/device DEVICE_ID=pi-cam-001 python agent.py
 
-  # Run with device secret
-  DEVICE_ID=pi-cam-001 DEVICE_SECRET=mysecret123 python agent.py
+  # Run with ONVIF PTZ control
+  DEVICE_ID=pi-cam-001 ONVIF_IP=192.168.1.100 ONVIF_USER=admin ONVIF_PASS=pass123 python agent.py
         """
     )
     parser.add_argument(
@@ -603,6 +681,32 @@ Examples:
         help="go2rtc HTTP API URL"
     )
     parser.add_argument(
+        "--onvif-ip",
+        default=os.getenv("ONVIF_IP"),
+        help="ONVIF camera IP address for PTZ control"
+    )
+    parser.add_argument(
+        "--onvif-port",
+        type=int,
+        default=int(os.getenv("ONVIF_PORT", "80")),
+        help="ONVIF camera port"
+    )
+    parser.add_argument(
+        "--onvif-user",
+        default=os.getenv("ONVIF_USER", "admin"),
+        help="ONVIF camera username"
+    )
+    parser.add_argument(
+        "--onvif-pass",
+        default=os.getenv("ONVIF_PASS", ""),
+        help="ONVIF camera password"
+    )
+    parser.add_argument(
+        "--onvif-wsdl-dir",
+        default=os.getenv("ONVIF_WSDL_DIR", "/opt/mumucam/onvif/wsdl"),
+        help="ONVIF WSDL directory"
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Enable verbose logging"
@@ -615,11 +719,23 @@ Examples:
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
+    # Create ONVIF config if IP is provided
+    onvif_config = None
+    if args.onvif_ip:
+        onvif_config = ONVIFConfig(
+            ip=args.onvif_ip,
+            port=args.onvif_port,
+            username=args.onvif_user,
+            password=args.onvif_pass,
+            wsdl_dir=args.onvif_wsdl_dir
+        )
+
     agent = Go2RTCProxyAgent(
         backend_url=args.backend,
         device_id=args.device_id,
         device_secret=args.device_secret,
-        go2rtc_http=args.go2rtc_http
+        go2rtc_http=args.go2rtc_http,
+        onvif_config=onvif_config
     )
 
     shutdown_event = asyncio.Event()

@@ -251,6 +251,21 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
         else:
             print(f"✗ Received proxy_http_resp without rid from device={device_id}")
 
+    elif msg_type == "ptz_control_resp":
+        # PTZ control response from device
+        rid = payload.get("rid")
+        success = payload.get("success", False)
+        # Store response in redis with TTL for API endpoint to retrieve
+        if rid:
+            await redis_client.setex(
+                f"ptz:response:{rid}",
+                30,  # 30 second TTL
+                payload
+            )
+            print(f"✓ Stored PTZ response for rid={rid}, success={success}, device={device_id}")
+        else:
+            print(f"✗ Received ptz_control_resp without rid from device={device_id}")
+
     elif msg_type == "signal_answer":
         # Forward SDP answer to viewer
         session_id = payload.get("session_id")

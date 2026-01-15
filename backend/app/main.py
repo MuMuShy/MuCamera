@@ -438,6 +438,71 @@ async def generate_pairing_code(
     }
 
 
+class PTZControlRequest(BaseModel):
+    action: str  # move, stop, focus, auto_focus, preset, capabilities
+    pan: Optional[float] = 0
+    tilt: Optional[float] = 0
+    zoom: Optional[float] = 0
+    duration: Optional[float] = 0.5
+    direction: Optional[str] = "near"  # for focus: near/far
+    speed: Optional[float] = 0.5
+    preset: Optional[int] = 1
+
+
+@app.post("/api/devices/{device_id}/ptz")
+async def ptz_control(
+    device_id: str,
+    ptz_request: PTZControlRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Send PTZ control command to device"""
+    import uuid
+
+    # Check if device is online
+    if not manager.is_device_online(device_id):
+        raise HTTPException(status_code=503, detail="Device offline")
+
+    # Generate request ID
+    rid = str(uuid.uuid4())
+
+    # Send PTZ control request to device
+    ptz_message = {
+        "type": "ptz_control",
+        "ts": datetime.utcnow().isoformat(),
+        "payload": {
+            "rid": rid,
+            "action": ptz_request.action,
+            "pan": ptz_request.pan,
+            "tilt": ptz_request.tilt,
+            "zoom": ptz_request.zoom,
+            "duration": ptz_request.duration,
+            "direction": ptz_request.direction,
+            "speed": ptz_request.speed,
+            "preset": ptz_request.preset
+        }
+    }
+
+    print(f"[ptz] Sending {ptz_request.action} to device {device_id}, rid={rid}")
+    await manager.send_to_device(device_id, ptz_message)
+
+    # Wait for response (poll redis)
+    from app.redis_client import redis_client
+    import asyncio
+
+    for attempt in range(20):  # Wait up to 10 seconds (20 * 0.5s)
+        resp_data = await redis_client.get(f"ptz:response:{rid}")
+        if resp_data:
+            print(f"[ptz] Got response for rid={rid}")
+            await redis_client.delete(f"ptz:response:{rid}")
+            return resp_data
+
+        await asyncio.sleep(0.5)
+
+    # Timeout - return success anyway since PTZ commands are fire-and-forget
+    print(f"[ptz] Timeout waiting for response rid={rid}, returning success")
+    return {"success": True, "message": "Command sent (no ack)"}
+
+
 @app.api_route("/api/devices/{device_id}/proxy/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_to_device(
     device_id: str,

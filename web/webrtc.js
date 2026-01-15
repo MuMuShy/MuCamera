@@ -246,5 +246,88 @@ if (typeof window.MuMuCamera === 'undefined') {
         stopStream();
     });
 
+    /**
+     * PTZ Control Functions
+     */
+    window.sendPTZCommand = async function(action, params = {}) {
+        if (!currentDeviceId) {
+            console.error('[PTZ] No device selected');
+            return;
+        }
+
+        const payload = {
+            action: action,
+            ...params
+        };
+
+        console.log(`[PTZ] Sending ${action} to ${currentDeviceId}:`, params);
+
+        try {
+            const response = await fetch(`${API_BASE}/api/devices/${currentDeviceId}/ptz`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const result = await response.json();
+            console.log('[PTZ] Response:', result);
+
+            if (!result.success && result.error) {
+                console.error('[PTZ] Error:', result.error);
+            }
+
+            return result;
+        } catch (error) {
+            console.error('[PTZ] Request failed:', error);
+            return { success: false, error: error.message };
+        }
+    };
+
+    /**
+     * Initialize PTZ controls when DOM is ready
+     */
+    function initPTZControls() {
+        const ptzControls = document.getElementById('ptzControls');
+        if (!ptzControls) return;
+
+        // Add click handlers to all PTZ buttons
+        ptzControls.querySelectorAll('.ptz-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const action = btn.dataset.action;
+                if (!action) return;
+
+                const params = {};
+
+                // Parse data attributes
+                if (btn.dataset.pan !== undefined) params.pan = parseFloat(btn.dataset.pan);
+                if (btn.dataset.tilt !== undefined) params.tilt = parseFloat(btn.dataset.tilt);
+                if (btn.dataset.zoom !== undefined) params.zoom = parseFloat(btn.dataset.zoom);
+                if (btn.dataset.direction !== undefined) params.direction = btn.dataset.direction;
+                if (btn.dataset.preset !== undefined) params.preset = parseInt(btn.dataset.preset);
+                if (btn.dataset.duration !== undefined) params.duration = parseFloat(btn.dataset.duration);
+
+                // Default duration for move actions
+                if (action === 'move' && params.duration === undefined) {
+                    params.duration = 0.3;
+                }
+
+                btn.disabled = true;
+                await window.sendPTZCommand(action, params);
+                btn.disabled = false;
+            });
+        });
+
+        console.log('[PTZ] Controls initialized');
+    }
+
+    // Initialize PTZ controls when DOM is loaded
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initPTZControls);
+    } else {
+        initPTZControls();
+    }
+
     console.log('[MuMu Camera] webrtc.js loaded successfully');
 })();

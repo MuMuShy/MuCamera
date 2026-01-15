@@ -392,6 +392,90 @@ header h1 {
     margin: 10px 0;
 }
 
+/* PTZ Controls */
+.ptz-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    padding: 20px;
+    background: var(--bg-color);
+    border-radius: 8px;
+    margin-top: 15px;
+}
+
+.ptz-section {
+    flex: 1;
+    min-width: 150px;
+}
+
+.ptz-section h3 {
+    font-size: 14px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.ptz-dpad {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+}
+
+.ptz-middle-row {
+    display: flex;
+    gap: 5px;
+}
+
+.ptz-btn {
+    width: 50px;
+    height: 50px;
+    border: 2px solid var(--border-color);
+    background: var(--card-bg);
+    border-radius: 8px;
+    font-size: 18px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ptz-btn:hover {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.ptz-btn:active {
+    transform: scale(0.95);
+    background: #1d4ed8;
+}
+
+.ptz-btn.ptz-home {
+    background: var(--secondary-color);
+    color: white;
+    border-color: var(--secondary-color);
+}
+
+.ptz-btn.ptz-home:hover {
+    background: #475569;
+}
+
+.ptz-zoom, .ptz-focus {
+    display: flex;
+    gap: 10px;
+}
+
+.ptz-zoom .ptz-btn,
+.ptz-focus .ptz-btn {
+    flex: 1;
+    min-width: 60px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .devices-list {
@@ -405,5 +489,13 @@ header h1 {
 
     .login-box {
         padding: 30px 20px;
+    }
+
+    .ptz-controls {
+        justify-content: center;
+    }
+
+    .ptz-section {
+        text-align: center;
     }
 }
