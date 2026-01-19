@@ -420,9 +420,13 @@ header h1 {
     flex-wrap: wrap;
     gap: 20px;
     padding: 20px;
-    background: var(--bg-color);
+    background: rgba(0, 0, 0, 0.7);
     border-radius: 8px;
-    margin-top: 15px;
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 110;
 }
 
 .ptz-section {
@@ -432,7 +436,7 @@ header h1 {
 
 .ptz-section h3 {
     font-size: 14px;
-    color: var(--text-muted);
+    color: rgba(255, 255, 255, 0.8);
     margin-bottom: 10px;
     text-transform: uppercase;
     letter-spacing: 0.5px;

@@ -43,6 +43,42 @@
                     <p>Connection State: <span id="connectionState">New</span></p>
                     <p>ICE State: <span id="iceState">New</span></p>
                 </div>
+
+                <!-- PTZ Controls (ONVIF) -->
+                <div id="ptzControls" class="ptz-controls">
+                    <!-- Direction Control -->
+                    <div class="ptz-section">
+                        <h3>Direction</h3>
+                        <div class="ptz-dpad">
+                            <button class="ptz-btn" data-action="move" data-pan="0" data-tilt="0.5" title="Up">▲</button>
+                            <div class="ptz-middle-row">
+                                <button class="ptz-btn" data-action="move" data-pan="-0.5" data-tilt="0" title="Left">◀</button>
+                                <button class="ptz-btn ptz-home" data-action="stop" title="Stop">■</button>
+                                <button class="ptz-btn" data-action="move" data-pan="0.5" data-tilt="0" title="Right">▶</button>
+                            </div>
+                            <button class="ptz-btn" data-action="move" data-pan="0" data-tilt="-0.5" title="Down">▼</button>
+                        </div>
+                    </div>
+
+                    <!-- Zoom Control -->
+                    <div class="ptz-section">
+                        <h3>Zoom</h3>
+                        <div class="ptz-zoom">
+                            <button class="ptz-btn" data-action="move" data-zoom="-0.5" title="Zoom Out">-</button>
+                            <button class="ptz-btn" data-action="move" data-zoom="0.5" title="Zoom In">+</button>
+                        </div>
+                    </div>
+
+                    <!-- Focus Control -->
+                    <div class="ptz-section">
+                        <h3>Focus</h3>
+                        <div class="ptz-focus">
+                            <button class="ptz-btn" data-action="focus" data-direction="near" title="Focus Near">Near</button>
+                            <button class="ptz-btn" data-action="auto_focus" title="Auto Focus">Auto</button>
+                            <button class="ptz-btn" data-action="focus" data-direction="far" title="Focus Far">Far</button>
+                        </div>
+                    </div>
+                </div>
             </section>
         </main>
 
