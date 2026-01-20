@@ -1,5 +1,5 @@
 /**
- * MuMu Camera Web Client - Main Application Logic
+ * 水下監視系統 Web Client - Main Application Logic
  */
 
 const API_BASE = window.location.origin.replace(':8080', ':8000');

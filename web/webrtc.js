@@ -1,5 +1,5 @@
 /**
- * MuMu Camera Web Client - go2rtc WebRTC Streaming
+ * 水下監視系統 Web Client - go2rtc WebRTC Streaming
  *
  * New architecture using go2rtc WebRTC:
  * - Direct WebRTC to go2rtc through Backend proxy
@@ -28,10 +28,10 @@ if (typeof window.MuMuCamera === 'undefined') {
     const WS_BASE = API_BASE.replace("https://", "wss://").replace("http://", "ws://");
 
     // Debug logging
-    console.log('[MuMu Camera] Origin:', window.location.origin);
-    console.log('[MuMu Camera] Port:', window.location.port);
-    console.log('[MuMu Camera] API_BASE:', API_BASE);
-    console.log('[MuMu Camera] WS_BASE:', WS_BASE);
+    console.log('[水下監視系統] Origin:', window.location.origin);
+    console.log('[水下監視系統] Port:', window.location.port);
+    console.log('[水下監視系統] API_BASE:', API_BASE);
+    console.log('[水下監視系統] WS_BASE:', WS_BASE);
 
     let ws = null;
     let pc = null;
@@ -435,5 +435,5 @@ if (typeof window.MuMuCamera === 'undefined') {
         initPTZControls();
     }
 
-    console.log('[MuMu Camera] webrtc.js loaded successfully');
+    console.log('[水下監視系統] webrtc.js loaded successfully');
 })();
