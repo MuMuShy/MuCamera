@@ -503,6 +503,29 @@ async def ptz_control(
     return {"success": True, "message": "Command sent (no ack)"}
 
 
+@app.get("/api/devices/{device_id}/gps")
+async def get_device_gps(
+    device_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get device GPS data"""
+    from app.redis_client import redis_client
+
+    # Get GPS data from Redis
+    gps_data = await redis_client.get(f"device:gps:{device_id}")
+
+    if gps_data:
+        return gps_data
+
+    # Return empty/disabled state if no GPS data
+    return {
+        "enabled": False,
+        "status": "unavailable",
+        "lat": None,
+        "lon": None
+    }
+
+
 @app.api_route("/api/devices/{device_id}/proxy/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_to_device(
     device_id: str,

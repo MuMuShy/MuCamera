@@ -26,6 +26,7 @@ import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from onvif_controller import ONVIFController, ONVIFConfig
+from gps_reader import GPSManager, create_gps_manager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,7 +54,8 @@ class Go2RTCProxyAgent:
         device_id: str,
         device_secret: Optional[str] = None,
         go2rtc_http: str = "http://127.0.0.1:1984",
-        onvif_config: Optional[ONVIFConfig] = None
+        onvif_config: Optional[ONVIFConfig] = None,
+        gps_manager: Optional[GPSManager] = None
     ):
         self.backend_url = backend_url
         self.device_id = device_id
@@ -65,6 +67,9 @@ class Go2RTCProxyAgent:
         if onvif_config:
             self.onvif_controller = ONVIFController(onvif_config)
             logger.info(f"[onvif] PTZ control enabled for {onvif_config.ip}")
+
+        # GPS Manager (optional, non-blocking)
+        self.gps_manager = gps_manager
 
         self.state = ConnectionState.DISCONNECTED
         self.ws: Optional[websockets.WebSocketClientProtocol] = None
@@ -503,13 +508,25 @@ class Go2RTCProxyAgent:
             })
 
     async def _heartbeat_loop(self):
-        """Send periodic heartbeats"""
+        """Send periodic heartbeats with optional GPS data"""
         try:
             while self.running and self.state == ConnectionState.CONNECTED:
+                payload = {}
+
+                # Include GPS data if available (non-blocking)
+                if self.gps_manager:
+                    try:
+                        gps_data = self.gps_manager.get_snapshot()
+                        # Only include if GPS is enabled and has meaningful data
+                        if gps_data.get("enabled"):
+                            payload["gps"] = gps_data
+                    except Exception as e:
+                        logger.debug(f"[gps] Error getting snapshot: {e}")
+
                 await self._send_message_safe({
                     "type": "heartbeat",
                     "ts": datetime.utcnow().isoformat(),
-                    "payload": {}
+                    "payload": payload
                 })
                 logger.debug(f"[ws] ♥ Heartbeat sent")
                 await asyncio.sleep(self.heartbeat_interval)
@@ -597,7 +614,15 @@ class Go2RTCProxyAgent:
             logger.info(f"ONVIF WSDL: {self.onvif_controller.config.wsdl_dir}")
         else:
             logger.info(f"ONVIF PTZ: DISABLED (set ONVIF_IP to enable)")
+        if self.gps_manager and self.gps_manager.enabled:
+            logger.info(f"GPS: ENABLED (device={self.gps_manager.device})")
+        else:
+            logger.info(f"GPS: DISABLED (set GPS_ENABLED=true to enable)")
         logger.info(f"================================================")
+
+        # Start GPS manager if enabled
+        if self.gps_manager:
+            self.gps_manager.start()
 
         self._go2rtc_health_task = asyncio.create_task(self.go2rtc_health_monitor())
 
@@ -619,6 +644,10 @@ class Go2RTCProxyAgent:
         logger.info("Stopping device agent...")
         self.running = False
         self.state = ConnectionState.STOPPING
+
+        # Stop GPS manager
+        if self.gps_manager:
+            self.gps_manager.stop()
 
         if self._go2rtc_health_task and not self._go2rtc_health_task.done():
             self._go2rtc_health_task.cancel()
@@ -665,6 +694,11 @@ Environment Variables:
   ONVIF_USER      - ONVIF camera username (default: admin)
   ONVIF_PASS      - ONVIF camera password
   ONVIF_WSDL_DIR  - ONVIF WSDL directory (default: /opt/mumucam/onvif/wsdl)
+
+  GPS (optional):
+  GPS_ENABLED     - Enable GPS reader (default: false)
+  GPS_DEVICE      - GPS serial device (default: /dev/sim7600-gps)
+  GPS_BAUDRATE    - GPS baud rate (default: 115200)
 
 Examples:
   # Run with default settings
@@ -747,12 +781,16 @@ Examples:
             wsdl_dir=args.onvif_wsdl_dir
         )
 
+    # Create GPS manager from environment variables
+    gps_manager = create_gps_manager()
+
     agent = Go2RTCProxyAgent(
         backend_url=args.backend,
         device_id=args.device_id,
         device_secret=args.device_secret,
         go2rtc_http=args.go2rtc_http,
-        onvif_config=onvif_config
+        onvif_config=onvif_config,
+        gps_manager=gps_manager
     )
 
     shutdown_event = asyncio.Event()

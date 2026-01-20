@@ -143,10 +143,37 @@
                             </div>
                         </div>
 
-                        <!-- Removed static session info block to avoid confusion -->
-                        <div class="control-group">
-                            <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center;">
-                                <p>訊號狀態以頂部顯示為準</p>
+                        <!-- GPS 定位資訊 -->
+                        <div class="control-group" id="gpsSection">
+                            <h3 class="control-title">GPS 定位</h3>
+                            <div id="gpsInfo" class="gps-info">
+                                <div class="gps-status">
+                                    <span class="gps-indicator" id="gpsIndicator"></span>
+                                    <span id="gpsStatusText">未啟用</span>
+                                </div>
+                                <div class="gps-coords" id="gpsCoords" style="display: none;">
+                                    <div class="gps-row">
+                                        <span class="gps-label">緯度</span>
+                                        <span class="gps-value" id="gpsLat">--</span>
+                                    </div>
+                                    <div class="gps-row">
+                                        <span class="gps-label">經度</span>
+                                        <span class="gps-value" id="gpsLon">--</span>
+                                    </div>
+                                    <div class="gps-row">
+                                        <span class="gps-label">衛星數</span>
+                                        <span class="gps-value" id="gpsSats">--</span>
+                                    </div>
+                                    <div class="gps-row" id="gpsSpeedRow" style="display: none;">
+                                        <span class="gps-label">速度</span>
+                                        <span class="gps-value" id="gpsSpeed">--</span>
+                                    </div>
+                                </div>
+                                <div class="gps-actions" id="gpsActions" style="display: none;">
+                                    <a id="gpsMapLink" href="#" target="_blank" class="btn btn-secondary btn-sm">
+                                        開啟地圖
+                                    </a>
+                                </div>
                             </div>
                         </div>
                     </aside>

@@ -457,6 +457,85 @@ body {
     transform: scale(0.98);
 }
 
+/* GPS Info Styles */
+.gps-info {
+    font-size: 0.85rem;
+}
+
+.gps-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+}
+
+.gps-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: var(--secondary-color);
+}
+
+.gps-indicator.searching {
+    background-color: var(--warning-color);
+    animation: gps-pulse 1.5s ease-in-out infinite;
+}
+
+.gps-indicator.fixed {
+    background-color: var(--success-color);
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+.gps-indicator.error,
+.gps-indicator.lost {
+    background-color: var(--danger-color);
+}
+
+@keyframes gps-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.gps-coords {
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+
+.gps-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.gps-row:last-child {
+    border-bottom: none;
+}
+
+.gps-label {
+    color: var(--text-muted);
+}
+
+.gps-value {
+    font-family: 'Monaco', 'Consolas', monospace;
+    color: var(--text-main);
+}
+
+.gps-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+}
+
 /* Shared Components & Utilities */
 .btn {
     padding: 10px 20px;

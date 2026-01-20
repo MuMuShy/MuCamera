@@ -212,6 +212,16 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
     elif msg_type == "heartbeat":
         # Update heartbeat
         await manager.update_heartbeat(device_id, is_device=True)
+
+        # Store GPS data if present
+        gps_data = payload.get("gps")
+        if gps_data:
+            await redis_client.setex(
+                f"device:gps:{device_id}",
+                60,  # 60 second TTL (expires if no heartbeat)
+                gps_data
+            )
+
         response = {
             "type": "heartbeat_ack",
             "request_id": request_id,

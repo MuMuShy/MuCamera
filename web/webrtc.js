@@ -37,6 +37,7 @@ if (typeof window.MuMuCamera === 'undefined') {
     let pc = null;
     let currentDeviceId = null;
     let isStreamingActive = false;
+    let gpsPollingInterval = null;
 
     /**
      * Initialize WebRTC connection using go2rtc
@@ -161,6 +162,9 @@ if (typeof window.MuMuCamera === 'undefined') {
 
             console.log('WebRTC connection established');
 
+            // Start GPS polling after connection
+            startGPSPolling();
+
         } catch (error) {
             console.error('Error starting WebRTC:', error);
             updateConnectionStatus('錯誤');
@@ -200,10 +204,119 @@ if (typeof window.MuMuCamera === 'undefined') {
     }
 
     /**
+     * GPS Functions
+     */
+    const GPS_STATUS_TEXT = {
+        'disabled': '未啟用',
+        'unavailable': '無資料',
+        'searching': '搜尋中...',
+        'fixed': '定位成功',
+        'lost': '訊號遺失',
+        'error': '錯誤'
+    };
+
+    async function fetchGPSData() {
+        if (!currentDeviceId) return;
+
+        try {
+            const response = await fetch(`${API_BASE}/api/devices/${currentDeviceId}/gps`);
+            if (!response.ok) return;
+
+            const data = await response.json();
+            updateGPSDisplay(data);
+        } catch (error) {
+            console.debug('[GPS] Fetch error:', error);
+        }
+    }
+
+    function updateGPSDisplay(data) {
+        const indicator = document.getElementById('gpsIndicator');
+        const statusText = document.getElementById('gpsStatusText');
+        const coords = document.getElementById('gpsCoords');
+        const actions = document.getElementById('gpsActions');
+        const latEl = document.getElementById('gpsLat');
+        const lonEl = document.getElementById('gpsLon');
+        const satsEl = document.getElementById('gpsSats');
+        const speedRow = document.getElementById('gpsSpeedRow');
+        const speedEl = document.getElementById('gpsSpeed');
+        const mapLink = document.getElementById('gpsMapLink');
+
+        if (!indicator || !statusText) return;
+
+        const status = data.status || 'unavailable';
+        const enabled = data.enabled;
+
+        // Update indicator
+        indicator.className = 'gps-indicator ' + status;
+
+        // Update status text
+        statusText.textContent = GPS_STATUS_TEXT[status] || status;
+
+        // Show/hide coordinates based on status
+        if (status === 'fixed' && data.lat !== null && data.lon !== null) {
+            coords.style.display = 'block';
+            actions.style.display = 'flex';
+
+            latEl.textContent = data.lat.toFixed(6) + '°';
+            lonEl.textContent = data.lon.toFixed(6) + '°';
+            satsEl.textContent = data.satellites !== null ? data.satellites : '--';
+
+            // Speed (convert knots to km/h)
+            if (data.speed_knots !== null && data.speed_knots !== undefined) {
+                speedRow.style.display = 'flex';
+                const speedKmh = (data.speed_knots * 1.852).toFixed(1);
+                speedEl.textContent = speedKmh + ' km/h';
+            } else {
+                speedRow.style.display = 'none';
+            }
+
+            // Update map link
+            mapLink.href = `https://www.google.com/maps?q=${data.lat},${data.lon}`;
+        } else {
+            coords.style.display = 'none';
+            actions.style.display = 'none';
+        }
+    }
+
+    function startGPSPolling() {
+        // Fetch immediately
+        fetchGPSData();
+
+        // Then poll every 5 seconds
+        if (gpsPollingInterval) {
+            clearInterval(gpsPollingInterval);
+        }
+        gpsPollingInterval = setInterval(fetchGPSData, 5000);
+        console.log('[GPS] Polling started');
+    }
+
+    function stopGPSPolling() {
+        if (gpsPollingInterval) {
+            clearInterval(gpsPollingInterval);
+            gpsPollingInterval = null;
+            console.log('[GPS] Polling stopped');
+        }
+
+        // Reset GPS display
+        const indicator = document.getElementById('gpsIndicator');
+        const statusText = document.getElementById('gpsStatusText');
+        const coords = document.getElementById('gpsCoords');
+        const actions = document.getElementById('gpsActions');
+
+        if (indicator) indicator.className = 'gps-indicator';
+        if (statusText) statusText.textContent = '未啟用';
+        if (coords) coords.style.display = 'none';
+        if (actions) actions.style.display = 'none';
+    }
+
+    /**
      * Stop the video stream
      */
     function stopStream() {
         isStreamingActive = false;
+
+        // Stop GPS polling
+        stopGPSPolling();
 
         const videoElement = document.getElementById('remoteVideo');
         if (videoElement) {
