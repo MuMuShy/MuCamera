@@ -685,6 +685,12 @@ async def get_device_recordings(
             if "error" in resp_data:
                 raise HTTPException(status_code=502, detail=resp_data["error"])
 
+            # Decode body_b64 and return JSON content
+            body_b64 = resp_data.get("body_b64", "")
+            if body_b64:
+                import json
+                body = base64.b64decode(body_b64).decode('utf-8')
+                return json.loads(body)
             return resp_data
 
         await asyncio.sleep(0.5)
@@ -726,6 +732,13 @@ async def get_device_recordings_stats(
             await redis_client.delete(f"playback:response:{rid}")
             if "error" in resp_data:
                 raise HTTPException(status_code=502, detail=resp_data["error"])
+
+            # Decode body_b64 and return JSON content
+            body_b64 = resp_data.get("body_b64", "")
+            if body_b64:
+                import json
+                body = base64.b64decode(body_b64).decode('utf-8')
+                return json.loads(body)
             return resp_data
         await asyncio.sleep(0.5)
 
@@ -890,6 +903,170 @@ async def download_recording(
         await asyncio.sleep(0.5)
 
     raise HTTPException(status_code=504, detail="Download timeout")
+
+
+# ============ Timeline API ============
+
+@app.get("/api/devices/{device_id}/recordings/timeline")
+async def get_device_timeline(
+    device_id: str,
+    date: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    取得裝置在指定日期的錄影時間軸。
+    回傳該日所有錄影片段的起止時間。
+    """
+    import asyncio
+
+    if not manager.is_device_online(device_id):
+        raise HTTPException(status_code=503, detail="Device offline")
+
+    rid = str(uuid.uuid4())
+
+    proxy_request = {
+        "type": "proxy_playback",
+        "ts": datetime.utcnow().isoformat(),
+        "payload": {
+            "rid": rid,
+            "method": "GET",
+            "path": f"/recordings/timeline?date={date}",
+            "headers": {},
+            "body_b64": None,
+            "timeout_ms": 10000
+        }
+    }
+
+    print(f"[timeline] Fetching timeline for {date} from {device_id}")
+    await manager.send_to_device(device_id, proxy_request)
+
+    for attempt in range(20):
+        resp_data = await redis_client.get(f"playback:response:{rid}")
+        if resp_data:
+            await redis_client.delete(f"playback:response:{rid}")
+            if "error" in resp_data:
+                raise HTTPException(status_code=502, detail=resp_data["error"])
+
+            # Decode body_b64 and return JSON content
+            body_b64 = resp_data.get("body_b64", "")
+            if body_b64:
+                import json
+                body = base64.b64decode(body_b64).decode('utf-8')
+                return json.loads(body)
+            return resp_data
+        await asyncio.sleep(0.5)
+
+    raise HTTPException(status_code=504, detail="Timeline API timeout")
+
+
+@app.get("/api/devices/{device_id}/recordings/stream")
+async def get_device_stream_playlist(
+    device_id: str,
+    start: str,
+    end: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    取得時間範圍的連續 HLS 播放清單。
+    實現跨檔連續播放功能。
+    """
+    import asyncio
+
+    if not manager.is_device_online(device_id):
+        raise HTTPException(status_code=503, detail="Device offline")
+
+    rid = str(uuid.uuid4())
+
+    # Build query string
+    query = f"start={start}"
+    if end:
+        query += f"&end={end}"
+
+    proxy_request = {
+        "type": "proxy_playback",
+        "ts": datetime.utcnow().isoformat(),
+        "payload": {
+            "rid": rid,
+            "method": "GET",
+            "path": f"/recordings/stream?{query}",
+            "headers": {},
+            "body_b64": None,
+            "timeout_ms": 120000  # 合併 HLS 可能需要較長時間
+        }
+    }
+
+    print(f"[stream] Fetching stream playlist from {start} to {end} for {device_id}")
+    await manager.send_to_device(device_id, proxy_request)
+
+    for attempt in range(240):  # 最多等待 120 秒
+        resp_data = await redis_client.get(f"playback:response:{rid}")
+        if resp_data:
+            await redis_client.delete(f"playback:response:{rid}")
+
+            if "error" in resp_data:
+                raise HTTPException(status_code=502, detail=resp_data["error"])
+
+            # 回傳 m3u8 播放清單內容
+            body_b64 = resp_data.get("body_b64", "")
+            body = base64.b64decode(body_b64).decode('utf-8') if body_b64 else ""
+
+            return Response(
+                content=body,
+                media_type="application/vnd.apple.mpegurl"
+            )
+        await asyncio.sleep(0.5)
+
+    raise HTTPException(status_code=504, detail="Stream playlist timeout")
+
+
+@app.get("/api/devices/{device_id}/recordings/stream/{segment}")
+async def get_device_stream_segment(
+    device_id: str,
+    segment: str,
+    start: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """取得合併串流的分段檔案"""
+    import asyncio
+
+    if not manager.is_device_online(device_id):
+        raise HTTPException(status_code=503, detail="Device offline")
+
+    rid = str(uuid.uuid4())
+
+    proxy_request = {
+        "type": "proxy_playback",
+        "ts": datetime.utcnow().isoformat(),
+        "payload": {
+            "rid": rid,
+            "method": "GET",
+            "path": f"/recordings/stream/{segment}?start={start}",
+            "headers": {},
+            "body_b64": None,
+            "timeout_ms": 30000
+        }
+    }
+
+    await manager.send_to_device(device_id, proxy_request)
+
+    for attempt in range(60):
+        resp_data = await redis_client.get(f"playback:response:{rid}")
+        if resp_data:
+            await redis_client.delete(f"playback:response:{rid}")
+
+            if "error" in resp_data:
+                raise HTTPException(status_code=502, detail=resp_data["error"])
+
+            body_b64 = resp_data.get("body_b64", "")
+            body = base64.b64decode(body_b64) if body_b64 else b""
+
+            return Response(
+                content=body,
+                media_type="video/mp2t"
+            )
+        await asyncio.sleep(0.5)
+
+    raise HTTPException(status_code=504, detail="Stream segment timeout")
 
 
 if __name__ == "__main__":

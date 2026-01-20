@@ -1,10 +1,14 @@
 /**
- * 水下監視系統 Web Client - Recordings Playback
+ * 水下監視系統 Web Client - Timeline Playback
+ * 支援 24 小時時間軸拖曳播放
  */
 
 const API_BASE = window.location.origin.replace(':8080', ':8000');
 let currentDeviceId = null;
 let hlsPlayer = null;
+let timelineData = null;
+let currentPlaybackTime = null;
+let isPlaying = false;
 
 // Check authentication
 function checkAuth() {
@@ -25,7 +29,7 @@ function checkAuth() {
     return token;
 }
 
-// Format file size
+// Format utilities
 function formatSize(bytes) {
     if (!bytes) return '--';
     const mb = bytes / (1024 * 1024);
@@ -35,7 +39,6 @@ function formatSize(bytes) {
     return mb.toFixed(1) + ' MB';
 }
 
-// Format duration
 function formatDuration(seconds) {
     if (!seconds) return '--';
     const h = Math.floor(seconds / 3600);
@@ -47,7 +50,6 @@ function formatDuration(seconds) {
     return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-// Format datetime
 function formatDateTime(isoString) {
     if (!isoString) return '--';
     const date = new Date(isoString);
@@ -58,6 +60,43 @@ function formatDateTime(isoString) {
         hour: '2-digit',
         minute: '2-digit'
     });
+}
+
+function formatTime(date) {
+    return date.toLocaleTimeString('zh-TW', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
+}
+
+function formatTimeShort(date) {
+    return date.toLocaleTimeString('zh-TW', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+}
+
+// Get today's date in YYYY-MM-DD format
+function getTodayDate() {
+    const now = new Date();
+    return now.toISOString().split('T')[0];
+}
+
+// Initialize timeline hour markers
+function initTimelineHours() {
+    const hoursContainer = document.querySelector('.timeline-hours');
+    if (!hoursContainer) return;
+
+    hoursContainer.innerHTML = '';
+    for (let h = 0; h <= 24; h += 2) {
+        const mark = document.createElement('span');
+        mark.className = 'timeline-hour-mark';
+        mark.textContent = h.toString().padStart(2, '0');
+        hoursContainer.appendChild(mark);
+    }
 }
 
 // Load devices for selector
@@ -92,41 +131,316 @@ async function loadDevices() {
     }
 }
 
-// Load recordings for selected device
-async function loadRecordings() {
+// Load timeline data for selected date
+async function loadTimeline() {
     const token = checkAuth();
     if (!token) return;
 
     const deviceId = document.getElementById('deviceSelect').value;
-    const recordingsList = document.getElementById('recordingsList');
-    const statsPanel = document.getElementById('statsPanel');
+    const date = document.getElementById('timelineDate').value;
 
-    if (!deviceId) {
-        recordingsList.innerHTML = '<div class="empty-state">請選擇一個裝置來查看錄影</div>';
-        statsPanel.innerHTML = '';
+    if (!deviceId || !date) {
         return;
     }
 
     currentDeviceId = deviceId;
 
-    // Show loading
-    recordingsList.innerHTML = '<div class="loading-indicator"><div class="spinner"></div><p>載入錄影中...</p></div>';
+    const timelineTrack = document.getElementById('timelineTrack');
 
     try {
-        // Get date filter
-        const startDate = document.getElementById('startDate').value;
-        const endDate = document.getElementById('endDate').value;
-
-        let url = `${API_BASE}/api/devices/${deviceId}/recordings?token=${token}`;
-        if (startDate) url += `&start_date=${startDate}T00:00:00`;
-        if (endDate) url += `&end_date=${endDate}T23:59:59`;
-
-        const response = await fetch(url);
+        const response = await fetch(`${API_BASE}/api/devices/${deviceId}/recordings/timeline?date=${date}&token=${token}`);
 
         if (response.status === 503) {
-            recordingsList.innerHTML = '<div class="error-state">裝置離線，無法取得錄影列表</div>';
+            console.error('Device offline');
             return;
         }
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        timelineData = await response.json();
+        renderTimeline();
+
+        // Also load recordings list
+        await loadRecordings();
+        await loadStats();
+
+    } catch (error) {
+        console.error('Error loading timeline:', error);
+        timelineData = { segments: [] };
+        renderTimeline();
+    }
+}
+
+// Render timeline segments
+function renderTimeline() {
+    const timelineTrack = document.getElementById('timelineTrack');
+    if (!timelineTrack || !timelineData) return;
+
+    // Clear existing segments (keep cursor and hover indicator)
+    const cursor = document.getElementById('timelineCursor');
+    const hoverIndicator = document.getElementById('timelineHoverIndicator');
+    timelineTrack.innerHTML = '';
+    timelineTrack.appendChild(cursor);
+    timelineTrack.appendChild(hoverIndicator);
+
+    const date = document.getElementById('timelineDate').value;
+    const dayStart = new Date(`${date}T00:00:00`);
+    const dayEnd = new Date(`${date}T23:59:59`);
+    const totalMs = dayEnd - dayStart;
+
+    // Render each segment
+    timelineData.segments.forEach(segment => {
+        const startTime = new Date(segment.start_time);
+        const endTime = new Date(segment.end_time);
+
+        // Calculate position and width as percentage
+        const startOffset = Math.max(0, startTime - dayStart);
+        const endOffset = Math.min(totalMs, endTime - dayStart);
+
+        const left = (startOffset / totalMs) * 100;
+        const width = ((endOffset - startOffset) / totalMs) * 100;
+
+        if (width > 0) {
+            const segmentEl = document.createElement('div');
+            segmentEl.className = 'timeline-segment';
+            segmentEl.style.left = `${left}%`;
+            segmentEl.style.width = `${width}%`;
+            segmentEl.dataset.filename = segment.filename;
+            segmentEl.dataset.startTime = segment.start_time;
+            segmentEl.title = `${formatTimeShort(startTime)} - ${formatTimeShort(endTime)}`;
+            timelineTrack.appendChild(segmentEl);
+        }
+    });
+
+    console.log(`[timeline] Rendered ${timelineData.segments.length} segments`);
+}
+
+// Handle timeline click - start playback from clicked position
+async function handleTimelineClick(event) {
+    const token = checkAuth();
+    if (!token || !currentDeviceId) return;
+
+    const timelineTrack = document.getElementById('timelineTrack');
+    const rect = timelineTrack.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const percentage = clickX / rect.width;
+
+    const date = document.getElementById('timelineDate').value;
+    const dayStart = new Date(`${date}T00:00:00`);
+    const clickedTime = new Date(dayStart.getTime() + percentage * 24 * 60 * 60 * 1000);
+
+    console.log(`[timeline] Clicked at ${formatTime(clickedTime)}`);
+
+    // Check if there's a recording at this time
+    const segment = findSegmentAtTime(clickedTime);
+    if (!segment) {
+        console.log('[timeline] No recording at this time');
+        return;
+    }
+
+    // Start playback from this time
+    await startPlaybackFromTime(clickedTime);
+}
+
+// Find segment that contains the given time
+function findSegmentAtTime(time) {
+    if (!timelineData || !timelineData.segments) return null;
+
+    for (const segment of timelineData.segments) {
+        const startTime = new Date(segment.start_time);
+        const endTime = new Date(segment.end_time);
+
+        if (time >= startTime && time <= endTime) {
+            return segment;
+        }
+    }
+    return null;
+}
+
+// Start playback from a specific time
+async function startPlaybackFromTime(startTime) {
+    const token = checkAuth();
+    if (!token || !currentDeviceId) return;
+
+    const playerInline = document.getElementById('playerInline');
+    const videoPlayer = document.getElementById('videoPlayer');
+    const timeDisplay = document.getElementById('playerTimeDisplay');
+    const cursor = document.getElementById('timelineCursor');
+
+    // Show player
+    playerInline.style.display = 'block';
+    currentPlaybackTime = startTime;
+    isPlaying = true;
+
+    // Update cursor position
+    updateCursorPosition(startTime);
+    cursor.classList.add('active');
+
+    // Update time display
+    timeDisplay.textContent = formatTime(startTime);
+
+    // Build stream URL
+    const startISO = startTime.toISOString();
+    const streamUrl = `${API_BASE}/api/devices/${currentDeviceId}/recordings/stream?start=${encodeURIComponent(startISO)}&token=${token}`;
+
+    console.log('[playback] Loading stream from:', startISO);
+
+    // Destroy previous player
+    if (hlsPlayer) {
+        hlsPlayer.destroy();
+        hlsPlayer = null;
+    }
+
+    // Initialize HLS player
+    if (Hls.isSupported()) {
+        hlsPlayer = new Hls({
+            debug: false,
+            enableWorker: true,
+            lowLatencyMode: false
+        });
+
+        hlsPlayer.loadSource(streamUrl);
+        hlsPlayer.attachMedia(videoPlayer);
+
+        hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function() {
+            console.log('[playback] HLS manifest loaded, starting playback');
+            videoPlayer.play().catch(e => console.log('[playback] Autoplay blocked:', e));
+        });
+
+        hlsPlayer.on(Hls.Events.ERROR, function(event, data) {
+            console.error('[playback] HLS error:', data);
+            if (data.fatal) {
+                switch (data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                        console.log('[playback] Network error, retrying...');
+                        hlsPlayer.startLoad();
+                        break;
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                        console.log('[playback] Media error, recovering...');
+                        hlsPlayer.recoverMediaError();
+                        break;
+                    default:
+                        console.error('[playback] Fatal error, stopping');
+                        stopPlayback();
+                        break;
+                }
+            }
+        });
+
+        // Update cursor position during playback
+        videoPlayer.addEventListener('timeupdate', handleTimeUpdate);
+
+    } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+        // Native HLS support (Safari)
+        videoPlayer.src = streamUrl;
+        videoPlayer.addEventListener('loadedmetadata', function() {
+            videoPlayer.play().catch(e => console.log('[playback] Autoplay blocked:', e));
+        });
+    } else {
+        alert('您的瀏覽器不支援 HLS 播放');
+        stopPlayback();
+    }
+}
+
+// Handle video time update - sync cursor with playback
+function handleTimeUpdate() {
+    const videoPlayer = document.getElementById('videoPlayer');
+    if (!currentPlaybackTime || !isPlaying) return;
+
+    // Calculate current playback time
+    const currentTime = new Date(currentPlaybackTime.getTime() + videoPlayer.currentTime * 1000);
+
+    // Update cursor position
+    updateCursorPosition(currentTime);
+
+    // Update time display
+    const timeDisplay = document.getElementById('playerTimeDisplay');
+    timeDisplay.textContent = formatTime(currentTime);
+    document.getElementById('timelineCurrentTime').textContent = formatTime(currentTime);
+}
+
+// Update timeline cursor position
+function updateCursorPosition(time) {
+    const cursor = document.getElementById('timelineCursor');
+    const date = document.getElementById('timelineDate').value;
+    const dayStart = new Date(`${date}T00:00:00`);
+    const dayEnd = new Date(`${date}T23:59:59`);
+    const totalMs = dayEnd - dayStart;
+
+    const offset = time - dayStart;
+    const percentage = (offset / totalMs) * 100;
+
+    cursor.style.left = `${Math.max(0, Math.min(100, percentage))}%`;
+}
+
+// Handle timeline hover
+function handleTimelineHover(event) {
+    const timelineTrack = document.getElementById('timelineTrack');
+    const hoverIndicator = document.getElementById('timelineHoverIndicator');
+    const rect = timelineTrack.getBoundingClientRect();
+    const hoverX = event.clientX - rect.left;
+    const percentage = hoverX / rect.width;
+
+    const date = document.getElementById('timelineDate').value;
+    const dayStart = new Date(`${date}T00:00:00`);
+    const hoverTime = new Date(dayStart.getTime() + percentage * 24 * 60 * 60 * 1000);
+
+    // Check if there's a recording at this time
+    const segment = findSegmentAtTime(hoverTime);
+    const hoverTimeEl = hoverIndicator.querySelector('.hover-time');
+
+    if (segment) {
+        hoverTimeEl.textContent = formatTime(hoverTime) + ' (有錄影)';
+    } else {
+        hoverTimeEl.textContent = formatTime(hoverTime) + ' (無錄影)';
+    }
+
+    hoverIndicator.style.left = `${hoverX}px`;
+}
+
+// Stop playback
+function stopPlayback() {
+    const playerInline = document.getElementById('playerInline');
+    const videoPlayer = document.getElementById('videoPlayer');
+    const cursor = document.getElementById('timelineCursor');
+
+    playerInline.style.display = 'none';
+    videoPlayer.pause();
+    videoPlayer.src = '';
+    videoPlayer.removeEventListener('timeupdate', handleTimeUpdate);
+
+    if (hlsPlayer) {
+        hlsPlayer.destroy();
+        hlsPlayer = null;
+    }
+
+    cursor.classList.remove('active');
+    isPlaying = false;
+    currentPlaybackTime = null;
+}
+
+// Load recordings list
+async function loadRecordings() {
+    const token = checkAuth();
+    if (!token) return;
+
+    const deviceId = document.getElementById('deviceSelect').value;
+    const date = document.getElementById('timelineDate').value;
+    const recordingsList = document.getElementById('recordingsList');
+
+    if (!deviceId) {
+        recordingsList.innerHTML = '<div class="empty-state">請選擇一個裝置來查看錄影</div>';
+        return;
+    }
+
+    try {
+        const startDate = `${date}T00:00:00`;
+        const endDate = `${date}T23:59:59`;
+
+        const url = `${API_BASE}/api/devices/${deviceId}/recordings?start_date=${startDate}&end_date=${endDate}&token=${token}`;
+        const response = await fetch(url);
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -136,10 +450,10 @@ async function loadRecordings() {
         const recordings = data.recordings || [];
 
         if (recordings.length === 0) {
-            recordingsList.innerHTML = '<div class="empty-state">此時間範圍內沒有錄影</div>';
+            recordingsList.innerHTML = '<div class="empty-state">此日期沒有錄影</div>';
         } else {
             recordingsList.innerHTML = recordings.map(rec => `
-                <div class="recording-card" onclick="playRecording('${rec.filename}')">
+                <div class="recording-card" onclick="playRecording('${rec.filename}', '${rec.start_time}')">
                     <div class="recording-thumbnail">
                         <div class="play-icon">播放</div>
                     </div>
@@ -158,9 +472,6 @@ async function loadRecordings() {
                 </div>
             `).join('');
         }
-
-        // Load stats
-        await loadStats();
 
     } catch (error) {
         console.error('Error loading recordings:', error);
@@ -206,90 +517,10 @@ async function loadStats() {
     }
 }
 
-// Play recording with HLS
-async function playRecording(filename) {
-    const token = checkAuth();
-    if (!token || !currentDeviceId) return;
-
-    const playerOverlay = document.getElementById('playerOverlay');
-    const videoPlayer = document.getElementById('videoPlayer');
-    const playerFilename = document.getElementById('playerFilename');
-
-    playerFilename.textContent = filename;
-    playerOverlay.classList.add('active');
-
-    // Build HLS URL
-    const hlsUrl = `${API_BASE}/api/devices/${currentDeviceId}/recordings/${filename}/hls/playlist.m3u8?token=${token}`;
-
-    console.log('[playback] Loading HLS:', hlsUrl);
-
-    // Destroy previous player
-    if (hlsPlayer) {
-        hlsPlayer.destroy();
-        hlsPlayer = null;
-    }
-
-    // Check if HLS.js is available and needed
-    if (Hls.isSupported()) {
-        hlsPlayer = new Hls({
-            debug: false,
-            enableWorker: true,
-            lowLatencyMode: false
-        });
-
-        hlsPlayer.loadSource(hlsUrl);
-        hlsPlayer.attachMedia(videoPlayer);
-
-        hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function() {
-            console.log('[playback] HLS manifest loaded, starting playback');
-            videoPlayer.play().catch(e => console.log('[playback] Autoplay blocked:', e));
-        });
-
-        hlsPlayer.on(Hls.Events.ERROR, function(event, data) {
-            console.error('[playback] HLS error:', data);
-            if (data.fatal) {
-                switch (data.type) {
-                    case Hls.ErrorTypes.NETWORK_ERROR:
-                        console.log('[playback] Network error, retrying...');
-                        hlsPlayer.startLoad();
-                        break;
-                    case Hls.ErrorTypes.MEDIA_ERROR:
-                        console.log('[playback] Media error, recovering...');
-                        hlsPlayer.recoverMediaError();
-                        break;
-                    default:
-                        alert('播放失敗，請稍後再試');
-                        closePlayer();
-                        break;
-                }
-            }
-        });
-
-    } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-        // Native HLS support (Safari)
-        videoPlayer.src = hlsUrl;
-        videoPlayer.addEventListener('loadedmetadata', function() {
-            videoPlayer.play().catch(e => console.log('[playback] Autoplay blocked:', e));
-        });
-    } else {
-        alert('您的瀏覽器不支援 HLS 播放');
-        closePlayer();
-    }
-}
-
-// Close player
-function closePlayer() {
-    const playerOverlay = document.getElementById('playerOverlay');
-    const videoPlayer = document.getElementById('videoPlayer');
-
-    playerOverlay.classList.remove('active');
-    videoPlayer.pause();
-    videoPlayer.src = '';
-
-    if (hlsPlayer) {
-        hlsPlayer.destroy();
-        hlsPlayer = null;
-    }
+// Play a specific recording file
+async function playRecording(filename, startTime) {
+    const time = new Date(startTime);
+    await startPlaybackFromTime(time);
 }
 
 // Download recording
@@ -299,7 +530,6 @@ function downloadRecording(filename) {
 
     const downloadUrl = `${API_BASE}/api/devices/${currentDeviceId}/recordings/${filename}/download?token=${token}`;
 
-    // Create hidden link and trigger download
     const a = document.createElement('a');
     a.href = downloadUrl;
     a.download = filename;
@@ -308,23 +538,50 @@ function downloadRecording(filename) {
     document.body.removeChild(a);
 }
 
+// Change date
+function changeDate(delta) {
+    const dateInput = document.getElementById('timelineDate');
+    const currentDate = new Date(dateInput.value);
+    currentDate.setDate(currentDate.getDate() + delta);
+    dateInput.value = currentDate.toISOString().split('T')[0];
+    loadTimeline();
+}
+
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
     checkAuth();
     loadDevices();
+    initTimelineHours();
+
+    // Set default date to today
+    const dateInput = document.getElementById('timelineDate');
+    dateInput.value = getTodayDate();
 
     // Device selector
-    document.getElementById('deviceSelect').addEventListener('change', loadRecordings);
+    document.getElementById('deviceSelect').addEventListener('change', loadTimeline);
 
-    // Date filters
-    document.getElementById('startDate').addEventListener('change', loadRecordings);
-    document.getElementById('endDate').addEventListener('change', loadRecordings);
+    // Date input
+    dateInput.addEventListener('change', loadTimeline);
+
+    // Date navigation buttons
+    document.getElementById('prevDayBtn').addEventListener('click', () => changeDate(-1));
+    document.getElementById('todayBtn').addEventListener('click', () => {
+        dateInput.value = getTodayDate();
+        loadTimeline();
+    });
+    document.getElementById('nextDayBtn').addEventListener('click', () => changeDate(1));
 
     // Refresh button
-    document.getElementById('refreshRecordingsBtn').addEventListener('click', loadRecordings);
+    document.getElementById('refreshRecordingsBtn').addEventListener('click', loadTimeline);
 
-    // Close player
-    document.getElementById('closePlayerBtn').addEventListener('click', closePlayer);
+    // Timeline click
+    document.getElementById('timelineTrack').addEventListener('click', handleTimelineClick);
+
+    // Timeline hover
+    document.getElementById('timelineTrack').addEventListener('mousemove', handleTimelineHover);
+
+    // Close player button
+    document.getElementById('playerCloseBtn').addEventListener('click', stopPlayback);
 
     // Logout
     document.getElementById('logoutBtn').addEventListener('click', () => {
@@ -333,17 +590,10 @@ document.addEventListener('DOMContentLoaded', function() {
         window.location.href = 'login.html';
     });
 
-    // Close player on escape
+    // Keyboard shortcuts
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
-            closePlayer();
-        }
-    });
-
-    // Close player on overlay click
-    document.getElementById('playerOverlay').addEventListener('click', function(e) {
-        if (e.target === this) {
-            closePlayer();
+            stopPlayback();
         }
     });
 });

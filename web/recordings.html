@@ -72,12 +72,13 @@
                         </select>
                     </div>
                     <div class="filter-group">
-                        <label for="startDate">開始日期</label>
-                        <input type="date" id="startDate" class="form-input">
+                        <label for="timelineDate">日期</label>
+                        <input type="date" id="timelineDate" class="form-input">
                     </div>
                     <div class="filter-group">
-                        <label for="endDate">結束日期</label>
-                        <input type="date" id="endDate" class="form-input">
+                        <button id="prevDayBtn" class="btn btn-secondary btn-sm">&lt; 前一天</button>
+                        <button id="todayBtn" class="btn btn-secondary btn-sm">今天</button>
+                        <button id="nextDayBtn" class="btn btn-secondary btn-sm">後一天 &gt;</button>
                     </div>
                 </div>
 
@@ -86,10 +87,48 @@
                     <!-- Stats will be loaded dynamically -->
                 </div>
 
-                <!-- Recordings List -->
-                <div class="recordings-list" id="recordingsList">
-                    <div class="empty-state">請選擇一個裝置來查看錄影</div>
+                <!-- Timeline -->
+                <div class="timeline-container" id="timelineContainer">
+                    <div class="timeline-header">
+                        <span class="timeline-title">24 小時時間軸</span>
+                        <span class="timeline-current-time" id="timelineCurrentTime">--:--:--</span>
+                    </div>
+                    <div class="timeline-wrapper">
+                        <div class="timeline-hours">
+                            <!-- 時間刻度 -->
+                        </div>
+                        <div class="timeline-track" id="timelineTrack">
+                            <!-- 錄影區段會動態加入 -->
+                            <div class="timeline-cursor" id="timelineCursor"></div>
+                            <div class="timeline-hover-indicator" id="timelineHoverIndicator">
+                                <span class="hover-time">--:--</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="timeline-legend">
+                        <span class="legend-item"><span class="legend-color has-recording"></span> 有錄影</span>
+                        <span class="legend-item"><span class="legend-color no-recording"></span> 無錄影</span>
+                    </div>
                 </div>
+
+                <!-- Video Player (inline) -->
+                <div class="player-inline" id="playerInline" style="display: none;">
+                    <div class="player-header-inline">
+                        <span id="playerTimeDisplay">--:--:--</span>
+                        <div class="player-controls-inline">
+                            <button id="playerCloseBtn" class="btn btn-sm btn-secondary">關閉</button>
+                        </div>
+                    </div>
+                    <video id="videoPlayer" controls playsinline></video>
+                </div>
+
+                <!-- Recordings List (collapsed by default when timeline is shown) -->
+                <details class="recordings-list-details">
+                    <summary>錄影列表（點擊展開）</summary>
+                    <div class="recordings-list" id="recordingsList">
+                        <div class="empty-state">請選擇一個裝置來查看錄影</div>
+                    </div>
+                </details>
             </div>
 
             <!-- Video Player Overlay -->

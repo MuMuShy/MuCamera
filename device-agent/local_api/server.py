@@ -14,12 +14,13 @@ import os
 import asyncio
 import hashlib
 import logging
+import json
 from pathlib import Path
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timedelta
+from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, PlainTextResponse
 from pydantic import BaseModel
 
 # 新增父目錄到路徑以便 import
@@ -68,6 +69,26 @@ class StatsResponse(BaseModel):
     total_size_gib: float
     oldest: Optional[str]
     newest: Optional[str]
+
+
+class TimelineSegment(BaseModel):
+    """時間軸上的錄影片段"""
+    filename: str
+    start_time: str  # ISO 格式
+    end_time: str    # ISO 格式（估算）
+    duration_seconds: int
+    file_size_bytes: Optional[int]
+
+
+class TimelineResponse(BaseModel):
+    """時間軸回應"""
+    date: str
+    segments: List[TimelineSegment]
+    total_duration_seconds: int
+
+
+# 錄影分段時長（用於估算結束時間）
+RECORDING_SEGMENT_SECONDS = int(os.getenv("RECORDING_SEGMENT_SECONDS", "300"))
 
 
 @app.on_event("startup")
@@ -257,6 +278,281 @@ async def get_hls_segment(filename: str, segment: str):
 
     file_hash = hashlib.md5(filename.encode()).hexdigest()[:8]
     segment_path = Path(HLS_CACHE_DIR) / file_hash / segment
+
+    if not segment_path.exists():
+        raise HTTPException(404, "找不到分段")
+
+    return FileResponse(
+        path=str(segment_path),
+        media_type="video/mp2t"
+    )
+
+
+@app.get("/recordings/timeline")
+async def get_timeline(
+    date: str = Query(..., description="日期（YYYY-MM-DD 格式）")
+):
+    """
+    取得指定日期的錄影時間軸。
+
+    回傳該日所有錄影片段的起止時間，供前端繪製時間軸。
+    """
+    # 解析日期
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "日期格式無效，請使用 YYYY-MM-DD")
+
+    # 設定查詢範圍（該日 00:00:00 到 23:59:59）
+    start_dt = datetime.combine(target_date, datetime.min.time())
+    end_dt = datetime.combine(target_date, datetime.max.time())
+
+    # 掃描並查詢
+    indexer.scan_directory()
+    recordings = indexer.get_recordings(
+        start_date=start_dt,
+        end_date=end_dt,
+        limit=1000,  # 一天最多 288 個 5 分鐘片段
+        offset=0
+    )
+
+    # 轉換為時間軸格式
+    segments = []
+    total_duration = 0
+
+    for rec in recordings:
+        start_time = datetime.fromisoformat(rec["start_time"])
+
+        # 估算結束時間（使用檔案實際時長或預設分段時長）
+        duration = rec.get("duration_seconds") or RECORDING_SEGMENT_SECONDS
+        end_time = start_time + timedelta(seconds=duration)
+
+        segments.append(TimelineSegment(
+            filename=rec["filename"],
+            start_time=rec["start_time"],
+            end_time=end_time.isoformat(),
+            duration_seconds=duration,
+            file_size_bytes=rec.get("file_size_bytes")
+        ))
+        total_duration += duration
+
+    # 依時間排序（最早的在前）
+    segments.sort(key=lambda x: x.start_time)
+
+    return TimelineResponse(
+        date=date,
+        segments=segments,
+        total_duration_seconds=total_duration
+    )
+
+
+@app.get("/recordings/stream")
+async def get_stream_playlist(
+    start: str = Query(..., description="開始時間（ISO 格式）"),
+    end: Optional[str] = Query(None, description="結束時間（ISO 格式，可選）")
+):
+    """
+    取得時間範圍的連續 HLS 播放清單。
+
+    此端點會找出指定時間範圍內的所有錄影檔案，
+    產生一個合併的 HLS 播放清單，實現跨檔連續播放。
+    """
+    # 解析時間
+    try:
+        start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(400, "start 時間格式無效")
+
+    end_dt = None
+    if end:
+        try:
+            end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(400, "end 時間格式無效")
+    else:
+        # 預設播放到最新
+        end_dt = datetime.now() + timedelta(hours=24)
+
+    # 查詢時間範圍內的錄影
+    indexer.scan_directory()
+
+    # 擴大查詢範圍以確保涵蓋起始時間所在的檔案
+    query_start = start_dt - timedelta(seconds=RECORDING_SEGMENT_SECONDS)
+
+    recordings = indexer.get_recordings(
+        start_date=query_start,
+        end_date=end_dt,
+        limit=1000,
+        offset=0
+    )
+
+    if not recordings:
+        raise HTTPException(404, "指定時間範圍內沒有錄影")
+
+    # 依時間排序（最早的在前）
+    recordings.sort(key=lambda x: x["start_time"])
+
+    # 篩選出包含指定開始時間的檔案及之後的檔案
+    filtered_recordings = []
+    for rec in recordings:
+        rec_start = datetime.fromisoformat(rec["start_time"])
+        rec_end = rec_start + timedelta(seconds=rec.get("duration_seconds") or RECORDING_SEGMENT_SECONDS)
+
+        # 如果此錄影的時間範圍與請求的時間範圍重疊
+        if rec_end > start_dt and rec_start < end_dt:
+            filtered_recordings.append(rec)
+
+    if not filtered_recordings:
+        raise HTTPException(404, "指定時間範圍內沒有錄影")
+
+    # 計算第一個檔案內的起始偏移量
+    first_rec = filtered_recordings[0]
+    first_rec_start = datetime.fromisoformat(first_rec["start_time"])
+    start_offset_seconds = max(0, (start_dt - first_rec_start).total_seconds())
+
+    # 產生合併的 HLS 播放清單
+    # 使用時間範圍的 hash 作為快取 key
+    cache_key = hashlib.md5(f"{start}_{end}".encode()).hexdigest()[:12]
+    cache_dir = Path(HLS_CACHE_DIR) / f"stream_{cache_key}"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    playlist_path = cache_dir / "playlist.m3u8"
+
+    # 產生各檔案的 HLS 分段並合併
+    playlist_content = [
+        "#EXTM3U",
+        "#EXT-X-VERSION:3",
+        f"#EXT-X-TARGETDURATION:{HLS_SEGMENT_DURATION}",
+        "#EXT-X-MEDIA-SEQUENCE:0",
+        "#EXT-X-PLAYLIST-TYPE:VOD",
+    ]
+
+    segment_index = 0
+
+    for i, rec in enumerate(filtered_recordings):
+        source_path = Path(RECORDING_DIR) / rec["filename"]
+        if not source_path.exists():
+            logger.warning(f"[local_api] 檔案不存在：{rec['filename']}")
+            continue
+
+        # 為每個來源檔案產生 HLS 分段
+        file_hash = hashlib.md5(rec["filename"].encode()).hexdigest()[:8]
+        file_cache_dir = Path(HLS_CACHE_DIR) / file_hash
+        file_cache_dir.mkdir(parents=True, exist_ok=True)
+
+        file_playlist_path = file_cache_dir / "playlist.m3u8"
+
+        # 如果該檔案的 HLS 尚未產生，則產生
+        if not file_playlist_path.exists() or source_path.stat().st_mtime > file_playlist_path.stat().st_mtime:
+            logger.info(f"[local_api] 產生 HLS：{rec['filename']}")
+
+            # 清除舊分段
+            for old_file in file_cache_dir.glob("*.ts"):
+                old_file.unlink()
+
+            cmd = [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel", "warning",
+                "-i", str(source_path),
+                "-c", "copy",
+                "-f", "hls",
+                "-hls_time", str(HLS_SEGMENT_DURATION),
+                "-hls_list_size", "0",
+                "-hls_segment_filename", str(file_cache_dir / "segment_%03d.ts"),
+                str(file_playlist_path)
+            ]
+
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await asyncio.wait_for(process.communicate(), timeout=120)
+
+                if process.returncode != 0:
+                    logger.error(f"[local_api] ffmpeg 失敗：{rec['filename']}")
+                    continue
+
+            except Exception as e:
+                logger.error(f"[local_api] HLS 產生失敗：{e}")
+                continue
+
+        # 讀取該檔案的播放清單並合併
+        try:
+            with open(file_playlist_path, "r") as f:
+                file_playlist = f.read()
+
+            # 解析並加入分段
+            lines = file_playlist.strip().split("\n")
+            skip_until_segment = 0
+
+            # 如果是第一個檔案且有起始偏移，跳過前面的分段
+            if i == 0 and start_offset_seconds > 0:
+                skip_until_segment = int(start_offset_seconds // HLS_SEGMENT_DURATION)
+
+            current_segment = 0
+            if i > 0:
+                # 在不同檔案之間加入 discontinuity 標記
+                playlist_content.append("#EXT-X-DISCONTINUITY")
+
+            for line in lines:
+                if line.startswith("#EXTINF:"):
+                    if current_segment >= skip_until_segment:
+                        playlist_content.append(line)
+                    current_segment += 1
+                elif line.endswith(".ts") and current_segment > skip_until_segment:
+                    # 使用絕對路徑指向分段
+                    segment_name = line.strip()
+                    # 建立符號連結或複製到合併目錄
+                    src_segment = file_cache_dir / segment_name
+                    dst_segment_name = f"seg_{segment_index:04d}.ts"
+                    dst_segment = cache_dir / dst_segment_name
+
+                    if src_segment.exists() and not dst_segment.exists():
+                        # 建立硬連結以節省空間
+                        try:
+                            os.link(str(src_segment), str(dst_segment))
+                        except OSError:
+                            # 如果硬連結失敗，使用符號連結
+                            dst_segment.symlink_to(src_segment)
+
+                    playlist_content.append(dst_segment_name)
+                    segment_index += 1
+
+        except Exception as e:
+            logger.error(f"[local_api] 讀取播放清單失敗：{e}")
+            continue
+
+    # 加入結束標記
+    playlist_content.append("#EXT-X-ENDLIST")
+
+    # 寫入合併的播放清單
+    final_playlist = "\n".join(playlist_content)
+    with open(playlist_path, "w") as f:
+        f.write(final_playlist)
+
+    logger.info(f"[local_api] 合併播放清單已產生：{len(filtered_recordings)} 個檔案，{segment_index} 個分段")
+
+    return PlainTextResponse(
+        content=final_playlist,
+        media_type="application/vnd.apple.mpegurl"
+    )
+
+
+@app.get("/recordings/stream/{segment}")
+async def get_stream_segment(
+    segment: str,
+    start: str = Query(..., description="原始請求的開始時間")
+):
+    """取得合併串流的分段檔案"""
+    if not segment.endswith(".ts") or "/" in segment or "\\" in segment or ".." in segment:
+        raise HTTPException(400, "分段名稱無效")
+
+    # 使用相同的快取 key
+    cache_key = hashlib.md5(f"{start}_None".encode()).hexdigest()[:12]
+    segment_path = Path(HLS_CACHE_DIR) / f"stream_{cache_key}" / segment
 
     if not segment_path.exists():
         raise HTTPException(404, "找不到分段")

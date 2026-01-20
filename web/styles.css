@@ -1117,3 +1117,244 @@ body {
         height: calc(100% - 60px);
     }
 }
+
+/* ========================================
+   Timeline Component
+   ======================================== */
+
+.timeline-container {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+}
+
+.timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.timeline-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.timeline-current-time {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--primary-color);
+    font-family: monospace;
+}
+
+.timeline-wrapper {
+    position: relative;
+}
+
+.timeline-hours {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 4px;
+    padding: 0 2px;
+}
+
+.timeline-hour-mark {
+    font-size: 10px;
+    color: var(--text-muted);
+    width: 30px;
+    text-align: center;
+}
+
+.timeline-track {
+    position: relative;
+    height: 40px;
+    background: var(--bg-dark);
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    border: 1px solid var(--border-color);
+}
+
+.timeline-track:hover {
+    border-color: var(--primary-color);
+}
+
+.timeline-segment {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background: var(--success-color);
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.timeline-segment:hover {
+    opacity: 1;
+}
+
+.timeline-segment.no-recording {
+    background: transparent;
+}
+
+.timeline-cursor {
+    position: absolute;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    background: var(--danger-color);
+    z-index: 10;
+    display: none;
+    pointer-events: none;
+}
+
+.timeline-cursor::before {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: -4px;
+    width: 10px;
+    height: 10px;
+    background: var(--danger-color);
+    border-radius: 50%;
+}
+
+.timeline-cursor.active {
+    display: block;
+}
+
+.timeline-hover-indicator {
+    position: absolute;
+    top: -30px;
+    transform: translateX(-50%);
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-family: monospace;
+    color: var(--text-main);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 20;
+    white-space: nowrap;
+}
+
+.timeline-track:hover .timeline-hover-indicator {
+    opacity: 1;
+}
+
+.timeline-legend {
+    display: flex;
+    gap: 16px;
+    margin-top: 12px;
+    justify-content: center;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.legend-color {
+    width: 16px;
+    height: 12px;
+    border-radius: 2px;
+}
+
+.legend-color.has-recording {
+    background: var(--success-color);
+}
+
+.legend-color.no-recording {
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+}
+
+/* Inline Player */
+.player-inline {
+    background: var(--bg-card);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+.player-header-inline {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--bg-sidebar);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.player-header-inline #playerTimeDisplay {
+    font-family: monospace;
+    font-size: 14px;
+    color: var(--primary-color);
+}
+
+.player-inline video {
+    width: 100%;
+    max-height: 50vh;
+    background: #000;
+}
+
+/* Recordings list as details */
+.recordings-list-details {
+    background: var(--bg-card);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.recordings-list-details summary {
+    padding: 16px;
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--text-main);
+    border-bottom: 1px solid var(--border-color);
+    user-select: none;
+}
+
+.recordings-list-details summary:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.recordings-list-details[open] summary {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.recordings-list-details .recordings-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Button group styles */
+.filter-group .btn-sm {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+/* Timeline responsive */
+@media (max-width: 768px) {
+    .timeline-hours {
+        font-size: 8px;
+    }
+
+    .timeline-hour-mark {
+        width: 20px;
+    }
+
+    .timeline-track {
+        height: 32px;
+    }
+
+    .player-inline video {
+        max-height: 40vh;
+    }
+}
