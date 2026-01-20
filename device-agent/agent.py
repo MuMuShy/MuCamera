@@ -520,6 +520,7 @@ class Go2RTCProxyAgent:
                         # Only include if GPS is enabled and has meaningful data
                         if gps_data.get("enabled"):
                             payload["gps"] = gps_data
+                            logger.debug(f"[gps] Heartbeat GPS: status={gps_data.get('status')}, lat={gps_data.get('lat')}, lon={gps_data.get('lon')}")
                     except Exception as e:
                         logger.debug(f"[gps] Error getting snapshot: {e}")
 
@@ -623,6 +624,7 @@ class Go2RTCProxyAgent:
         # Start GPS manager if enabled
         if self.gps_manager:
             self.gps_manager.start()
+            logger.info(f"[gps] Manager started, polling GPS data...")
 
         self._go2rtc_health_task = asyncio.create_task(self.go2rtc_health_monitor())
 
