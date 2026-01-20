@@ -1,0 +1,31 @@
+[Unit]
+Description=MuMu Camera 錄影服務
+After=network-online.target go2rtc.service
+Wants=network-online.target
+Requires=go2rtc.service
+
+[Service]
+Type=simple
+User=mumucam
+Group=mumucam
+WorkingDirectory=/opt/mumucam/device-agent
+EnvironmentFile=/etc/mumucam/agent.env
+ExecStart=/opt/mumucam/venv/bin/python /opt/mumucam/device-agent/recorder.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# 錄影相關環境變數
+Environment="RECORDING_ENABLED=true"
+Environment="RECORDING_RTSP_URL=rtsp://127.0.0.1:8554/cam"
+Environment="RECORDING_DIR=/opt/mumucam/recordings/cam"
+Environment="RECORDING_SEGMENT_SECONDS=300"
+
+# 優雅關閉 - 讓 ffmpeg 完成當前分段
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target

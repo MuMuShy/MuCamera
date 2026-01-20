@@ -1,0 +1,19 @@
+[Unit]
+Description=MuMu Camera 錄影清理服務
+After=network.target
+
+[Service]
+Type=oneshot
+User=mumucam
+Group=mumucam
+WorkingDirectory=/opt/mumucam/device-agent
+EnvironmentFile=/etc/mumucam/agent.env
+ExecStart=/opt/mumucam/venv/bin/python /opt/mumucam/device-agent/cleaner.py
+StandardOutput=journal
+StandardError=journal
+
+# 清理相關環境變數（58GB 磁碟，保留 ~23GB 給系統）
+Environment="RECORDING_DIR=/opt/mumucam/recordings/cam"
+Environment="CLEANUP_MAX_GIB=35"
+Environment="CLEANUP_TARGET_GIB=30"
+Environment="CLEANUP_RETENTION_DAYS=7"

@@ -6,26 +6,24 @@ Requires=go2rtc.service
 
 [Service]
 Type=simple
-User=root
+User=mumucam
+Group=mumucam
 WorkingDirectory=/opt/mumucam
 EnvironmentFile=/etc/mumucam/agent.env
-ExecStart=/opt/mumucam/venv/bin/python /opt/mumucam/agent.py
-Restart=always
+ExecStart=/opt/mumucam/venv/bin/python /opt/mumucam/device-agent/agent.py
+Restart=on-failure
 RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-# Graceful shutdown
 TimeoutStopSec=30
 KillMode=mixed
-
-# Security
-PrivateTmp=true
-NoNewPrivileges=true
-
-# Resource limits
-LimitNOFILE=65536
-MemoryMax=512M
-
+StandardOutput=journal
+StandardError=journal
+Environment="ONVIF_IP=10.10.0.48"
+Environment="ONVIF_PORT=80"
+Environment="ONVIF_USER=admin"
+Environment="ONVIF_PASS=123456"
+Environment="ONVIF_WSDL_DIR=/opt/mumucam/onvif/wsdl"
+Environment="GPS_ENABLED=true"
+Environment="GPS_DEVICE=/dev/sim7600-gps"
+Environment="GPS_BAUDRATE=115200"
 [Install]
 WantedBy=multi-user.target

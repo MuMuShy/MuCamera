@@ -1,0 +1,10 @@
+[Unit]
+Description=每小時執行 MuMu Camera 錄影清理
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

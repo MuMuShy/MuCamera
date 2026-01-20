@@ -615,6 +615,283 @@ async def proxy_to_device(
     raise HTTPException(status_code=504, detail="Proxy timeout")
 
 
+# ============ Recordings API ============
+
+class RecordingListResponse(BaseModel):
+    recordings: list
+    total: int
+    page: int
+    limit: int
+
+
+@app.get("/api/devices/{device_id}/recordings")
+async def get_device_recordings(
+    device_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    page: int = 1,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get recordings list for a device.
+    Proxies to device's local playback API.
+    """
+    import asyncio
+    import base64
+
+    # Check if device is online
+    if not manager.is_device_online(device_id):
+        raise HTTPException(status_code=503, detail="Device offline")
+
+    # Generate request ID
+    rid = str(uuid.uuid4())
+
+    # Build query string
+    params = []
+    if start_date:
+        params.append(f"start_date={start_date}")
+    if end_date:
+        params.append(f"end_date={end_date}")
+    params.append(f"page={page}")
+    params.append(f"limit={limit}")
+    query_string = "&".join(params)
+
+    # Send proxy request to device's playback API (port 8090)
+    proxy_request = {
+        "type": "proxy_playback",
+        "ts": datetime.utcnow().isoformat(),
+        "payload": {
+            "rid": rid,
+            "method": "GET",
+            "path": f"/recordings?{query_string}",
+            "headers": {},
+            "body_b64": None,
+            "timeout_ms": 10000
+        }
+    }
+
+    print(f"[recordings] Fetching list from device {device_id}, rid={rid}")
+    await manager.send_to_device(device_id, proxy_request)
+
+    # Wait for response
+    for attempt in range(20):
+        resp_data = await redis_client.get(f"playback:response:{rid}")
+        if resp_data:
+            print(f"[recordings] Got response for rid={rid}")
+            await redis_client.delete(f"playback:response:{rid}")
+
+            # Check for error
+            if "error" in resp_data:
+                raise HTTPException(status_code=502, detail=resp_data["error"])
+
+            return resp_data
+
+        await asyncio.sleep(0.5)
+
+    raise HTTPException(status_code=504, detail="Playback API timeout")
+
+
+@app.get("/api/devices/{device_id}/recordings/stats")
+async def get_device_recordings_stats(
+    device_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get recording statistics for a device."""
+    import asyncio
+
+    if not manager.is_device_online(device_id):
+        raise HTTPException(status_code=503, detail="Device offline")
+
+    rid = str(uuid.uuid4())
+
+    proxy_request = {
+        "type": "proxy_playback",
+        "ts": datetime.utcnow().isoformat(),
+        "payload": {
+            "rid": rid,
+            "method": "GET",
+            "path": "/recordings/stats",
+            "headers": {},
+            "body_b64": None,
+            "timeout_ms": 10000
+        }
+    }
+
+    await manager.send_to_device(device_id, proxy_request)
+
+    for attempt in range(20):
+        resp_data = await redis_client.get(f"playback:response:{rid}")
+        if resp_data:
+            await redis_client.delete(f"playback:response:{rid}")
+            if "error" in resp_data:
+                raise HTTPException(status_code=502, detail=resp_data["error"])
+            return resp_data
+        await asyncio.sleep(0.5)
+
+    raise HTTPException(status_code=504, detail="Playback API timeout")
+
+
+@app.get("/api/devices/{device_id}/recordings/{filename}/hls/playlist.m3u8")
+async def get_recording_hls_playlist(
+    device_id: str,
+    filename: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get HLS playlist for a recording (proxies to device)."""
+    import asyncio
+    import base64
+
+    if not manager.is_device_online(device_id):
+        raise HTTPException(status_code=503, detail="Device offline")
+
+    rid = str(uuid.uuid4())
+
+    proxy_request = {
+        "type": "proxy_playback",
+        "ts": datetime.utcnow().isoformat(),
+        "payload": {
+            "rid": rid,
+            "method": "GET",
+            "path": f"/recordings/{filename}/hls/playlist.m3u8",
+            "headers": {},
+            "body_b64": None,
+            "timeout_ms": 60000  # HLS generation can take time
+        }
+    }
+
+    print(f"[recordings] Getting HLS playlist for {filename} from {device_id}")
+    await manager.send_to_device(device_id, proxy_request)
+
+    for attempt in range(120):  # 60 seconds timeout
+        resp_data = await redis_client.get(f"playback:response:{rid}")
+        if resp_data:
+            await redis_client.delete(f"playback:response:{rid}")
+
+            if "error" in resp_data:
+                raise HTTPException(status_code=502, detail=resp_data["error"])
+
+            # Return playlist content
+            body_b64 = resp_data.get("body_b64", "")
+            body = base64.b64decode(body_b64) if body_b64 else b""
+
+            return Response(
+                content=body,
+                media_type="application/vnd.apple.mpegurl"
+            )
+        await asyncio.sleep(0.5)
+
+    raise HTTPException(status_code=504, detail="HLS playlist timeout")
+
+
+@app.get("/api/devices/{device_id}/recordings/{filename}/hls/{segment}")
+async def get_recording_hls_segment(
+    device_id: str,
+    filename: str,
+    segment: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get HLS segment for a recording (proxies to device)."""
+    import asyncio
+    import base64
+
+    if not manager.is_device_online(device_id):
+        raise HTTPException(status_code=503, detail="Device offline")
+
+    rid = str(uuid.uuid4())
+
+    proxy_request = {
+        "type": "proxy_playback",
+        "ts": datetime.utcnow().isoformat(),
+        "payload": {
+            "rid": rid,
+            "method": "GET",
+            "path": f"/recordings/{filename}/hls/{segment}",
+            "headers": {},
+            "body_b64": None,
+            "timeout_ms": 30000
+        }
+    }
+
+    await manager.send_to_device(device_id, proxy_request)
+
+    for attempt in range(60):
+        resp_data = await redis_client.get(f"playback:response:{rid}")
+        if resp_data:
+            await redis_client.delete(f"playback:response:{rid}")
+
+            if "error" in resp_data:
+                raise HTTPException(status_code=502, detail=resp_data["error"])
+
+            body_b64 = resp_data.get("body_b64", "")
+            body = base64.b64decode(body_b64) if body_b64 else b""
+
+            return Response(
+                content=body,
+                media_type="video/mp2t"
+            )
+        await asyncio.sleep(0.5)
+
+    raise HTTPException(status_code=504, detail="HLS segment timeout")
+
+
+@app.get("/api/devices/{device_id}/recordings/{filename}/download")
+async def download_recording(
+    device_id: str,
+    filename: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Download a recording file.
+    Note: For large files, consider implementing streaming or direct device connection.
+    """
+    import asyncio
+    import base64
+
+    if not manager.is_device_online(device_id):
+        raise HTTPException(status_code=503, detail="Device offline")
+
+    rid = str(uuid.uuid4())
+
+    proxy_request = {
+        "type": "proxy_playback",
+        "ts": datetime.utcnow().isoformat(),
+        "payload": {
+            "rid": rid,
+            "method": "GET",
+            "path": f"/recordings/{filename}/download",
+            "headers": {},
+            "body_b64": None,
+            "timeout_ms": 60000
+        }
+    }
+
+    print(f"[recordings] Download request for {filename} from {device_id}")
+    await manager.send_to_device(device_id, proxy_request)
+
+    for attempt in range(120):
+        resp_data = await redis_client.get(f"playback:response:{rid}")
+        if resp_data:
+            await redis_client.delete(f"playback:response:{rid}")
+
+            if "error" in resp_data:
+                raise HTTPException(status_code=502, detail=resp_data["error"])
+
+            body_b64 = resp_data.get("body_b64", "")
+            body = base64.b64decode(body_b64) if body_b64 else b""
+
+            return Response(
+                content=body,
+                media_type="video/mp2t",
+                headers={
+                    "Content-Disposition": f"attachment; filename={filename}"
+                }
+            )
+        await asyncio.sleep(0.5)
+
+    raise HTTPException(status_code=504, detail="Download timeout")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

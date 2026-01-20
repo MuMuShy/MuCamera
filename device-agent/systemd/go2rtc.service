@@ -1,28 +1,17 @@
 [Unit]
 Description=go2rtc Stream Server
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt
-ExecStart=/opt/go2rtc -c /etc/go2rtc/go2rtc.yaml
+WorkingDirectory=/home/dive/go2rtc
+ExecStart=/home/dive/go2rtc/go2rtc -config /home/dive/go2rtc/go2rtc.yaml
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-
-# Graceful shutdown
-TimeoutStopSec=10
-KillMode=mixed
-
-# Security
-PrivateTmp=true
-NoNewPrivileges=true
-
-# Resource limits
-LimitNOFILE=65536
-MemoryMax=1G
 
 [Install]
 WantedBy=multi-user.target

@@ -54,6 +54,7 @@ class Go2RTCProxyAgent:
         device_id: str,
         device_secret: Optional[str] = None,
         go2rtc_http: str = "http://127.0.0.1:1984",
+        playback_http: str = "http://127.0.0.1:8090",
         onvif_config: Optional[ONVIFConfig] = None,
         gps_manager: Optional[GPSManager] = None
     ):
@@ -61,6 +62,7 @@ class Go2RTCProxyAgent:
         self.device_id = device_id
         self.device_secret = device_secret
         self.go2rtc_http = go2rtc_http
+        self.playback_http = playback_http
 
         # ONVIF PTZ Controller
         self.onvif_controller: Optional[ONVIFController] = None
@@ -348,6 +350,14 @@ class Go2RTCProxyAgent:
         elif msg_type == "ptz_control":
             asyncio.create_task(self._handle_ptz_control(payload))
 
+        elif msg_type == "proxy_playback":
+            # Proxy to local playback API (port 8090)
+            task = asyncio.create_task(self._handle_proxy_playback(payload))
+            rid = payload.get("rid")
+            if rid:
+                self._pending_proxy_tasks[rid] = task
+                task.add_done_callback(lambda t: self._pending_proxy_tasks.pop(rid, None))
+
         # Legacy WebRTC signaling messages (ignored in proxy mode)
         elif msg_type in ["watch_request", "signal_offer", "signal_answer", "signal_ice", "watch_ended"]:
             logger.debug(f"[ws] Ignoring legacy message: {msg_type} (Backend should use proxy_http in go2rtc mode)")
@@ -504,6 +514,90 @@ class Go2RTCProxyAgent:
                     "status": 500,
                     "headers": {},
                     "body_b64": base64.b64encode(f"Internal Error: {str(e)}".encode()).decode('utf-8')
+                }
+            })
+
+    async def _handle_proxy_playback(self, payload: dict):
+        """Handle HTTP proxy request to local playback API"""
+        rid = payload.get("rid")
+        method = payload.get("method", "GET")
+        path = payload.get("path", "/")
+        headers = payload.get("headers", {})
+        body_b64 = payload.get("body_b64")
+        timeout_ms = payload.get("timeout_ms", 30000)
+
+        logger.info(f"[playback] {method} {path} (rid={rid})")
+
+        try:
+            body = None
+            if body_b64:
+                try:
+                    body = base64.b64decode(body_b64)
+                except Exception as e:
+                    logger.error(f"[playback] Failed to decode body: {e}")
+
+            url = self.playback_http + path
+
+            timeout = aiohttp.ClientTimeout(total=timeout_ms / 1000)
+            connector = aiohttp.TCPConnector(force_close=True, limit=10)
+
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+                async with session.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    data=body
+                ) as resp:
+                    status = resp.status
+                    resp_headers = dict(resp.headers)
+                    resp_body = await resp.read()
+
+                    resp_body_b64 = base64.b64encode(resp_body).decode('utf-8')
+
+                    response_sent = await self._send_message_safe({
+                        "type": "proxy_playback_resp",
+                        "ts": datetime.utcnow().isoformat(),
+                        "payload": {
+                            "rid": rid,
+                            "status": status,
+                            "headers": resp_headers,
+                            "body_b64": resp_body_b64
+                        }
+                    })
+
+                    if response_sent:
+                        logger.info(f"[playback] {method} {path} → {status} ({len(resp_body)} bytes) ✓")
+                    else:
+                        logger.error(f"[playback] {method} {path} → {status} ✗ Failed to send response")
+
+        except asyncio.TimeoutError:
+            logger.error(f"[playback] Timeout for rid={rid}")
+            await self._send_message_safe({
+                "type": "proxy_playback_resp",
+                "ts": datetime.utcnow().isoformat(),
+                "payload": {
+                    "rid": rid,
+                    "error": "Playback API timeout"
+                }
+            })
+        except aiohttp.ClientConnectorError as e:
+            logger.error(f"[playback] Connection error: {e}")
+            await self._send_message_safe({
+                "type": "proxy_playback_resp",
+                "ts": datetime.utcnow().isoformat(),
+                "payload": {
+                    "rid": rid,
+                    "error": f"Playback API unavailable: {str(e)}"
+                }
+            })
+        except Exception as e:
+            logger.error(f"[playback] Error handling request: {e}", exc_info=True)
+            await self._send_message_safe({
+                "type": "proxy_playback_resp",
+                "ts": datetime.utcnow().isoformat(),
+                "payload": {
+                    "rid": rid,
+                    "error": f"Internal Error: {str(e)}"
                 }
             })
 

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>錄影回放 - 水下監視系統</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- HLS.js for video playback -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">水</div>
+                <h1>水下監視系統</h1>
+            </div>
+
+            <div class="user-profile">
+                <div class="user-avatar">
+                    <span id="username-initial">U</span>
+                </div>
+                <div class="user-details">
+                    <div class="user-name" id="username">載入中...</div>
+                    <div class="user-role">管理員</div>
+                </div>
+            </div>
+
+            <nav class="nav-menu">
+                <a href="index.html" class="nav-item">
+                    <span class="icon">裝置列表</span>
+                </a>
+                <div class="nav-item active">
+                    <span class="icon">錄影回放</span>
+                </div>
+                <div class="nav-item">
+                    <span class="icon">系統設定</span>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button id="logoutBtn" class="nav-item" style="width: 100%; border: none; background: transparent;">
+                    <span>登出</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <div class="page-title">
+                    <h2>錄影回放</h2>
+                </div>
+                <div class="actions">
+                    <button id="refreshRecordingsBtn" class="btn btn-secondary">
+                        重新整理
+                    </button>
+                </div>
+            </header>
+
+            <div class="content-area recordings-content">
+                <!-- Filters -->
+                <div class="recordings-filters">
+                    <div class="filter-group">
+                        <label for="deviceSelect">選擇裝置</label>
+                        <select id="deviceSelect" class="form-select">
+                            <option value="">載入中...</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="startDate">開始日期</label>
+                        <input type="date" id="startDate" class="form-input">
+                    </div>
+                    <div class="filter-group">
+                        <label for="endDate">結束日期</label>
+                        <input type="date" id="endDate" class="form-input">
+                    </div>
+                </div>
+
+                <!-- Stats Panel -->
+                <div class="recordings-stats" id="statsPanel">
+                    <!-- Stats will be loaded dynamically -->
+                </div>
+
+                <!-- Recordings List -->
+                <div class="recordings-list" id="recordingsList">
+                    <div class="empty-state">請選擇一個裝置來查看錄影</div>
+                </div>
+            </div>
+
+            <!-- Video Player Overlay -->
+            <div id="playerOverlay" class="player-overlay">
+                <div class="player-container">
+                    <div class="player-header">
+                        <span id="playerFilename">--</span>
+                        <button id="closePlayerBtn" class="close-player-btn">&times;</button>
+                    </div>
+                    <video id="videoPlayer" controls playsinline></video>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="recordings.js"></script>
+</body>
+
+</html>
