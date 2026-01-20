@@ -8,6 +8,9 @@ from pydantic import BaseModel
 from typing import List, Optional
 import secrets
 import uuid
+import base64
+import asyncio
+import json
 
 from app.config import settings
 from app.database import get_db, engine
@@ -972,6 +975,8 @@ async def get_device_stream_playlist(
     實現跨檔連續播放功能。
     """
     import asyncio
+    import re
+    from urllib.parse import quote
 
     if not manager.is_device_online(device_id):
         raise HTTPException(status_code=503, detail="Device offline")
@@ -1010,6 +1015,21 @@ async def get_device_stream_playlist(
             # 回傳 m3u8 播放清單內容
             body_b64 = resp_data.get("body_b64", "")
             body = base64.b64decode(body_b64).decode('utf-8') if body_b64 else ""
+
+            # 修正片段 URL 路徑
+            # 將 seg_XXXX.ts 改為 stream/seg_XXXX.ts?start=<原始start參數>
+            # 這樣 HLS.js 才能正確解析相對路徑
+            encoded_start = quote(start, safe='')
+            lines = body.split('\n')
+            fixed_lines = []
+            for line in lines:
+                if line.strip().endswith('.ts') and not line.startswith('#'):
+                    # 這是片段檔案名稱，加上正確的路徑前綴和參數
+                    segment_name = line.strip()
+                    fixed_lines.append(f"stream/{segment_name}?start={encoded_start}")
+                else:
+                    fixed_lines.append(line)
+            body = '\n'.join(fixed_lines)
 
             return Response(
                 content=body,

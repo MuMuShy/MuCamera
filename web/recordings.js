@@ -79,23 +79,54 @@ function formatTimeShort(date) {
     });
 }
 
-// Get today's date in YYYY-MM-DD format
+// Get today's date in YYYY-MM-DD format (local timezone)
 function getTodayDate() {
     const now = new Date();
-    return now.toISOString().split('T')[0];
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 }
 
 // Initialize timeline hour markers
 function initTimelineHours() {
-    const hoursContainer = document.querySelector('.timeline-hours');
+    const hoursContainer = document.getElementById('timelineHours');
     if (!hoursContainer) return;
 
     hoursContainer.innerHTML = '';
+    // Show hours every 2 hours for cleaner display
     for (let h = 0; h <= 24; h += 2) {
         const mark = document.createElement('span');
         mark.className = 'timeline-hour-mark';
-        mark.textContent = h.toString().padStart(2, '0');
+        mark.textContent = h.toString().padStart(2, '0') + ':00';
         hoursContainer.appendChild(mark);
+    }
+}
+
+// Update timeline date display
+function updateTimelineDateDisplay() {
+    const dateInput = document.getElementById('timelineDate');
+    const dateDisplay = document.getElementById('timelineDateDisplay');
+    if (!dateInput || !dateDisplay) return;
+
+    const date = new Date(dateInput.value + 'T00:00:00');
+    const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' };
+    dateDisplay.textContent = date.toLocaleDateString('zh-TW', options);
+}
+
+// Toggle fullscreen for video player
+function toggleFullscreen() {
+    const playerWrapper = document.getElementById('playerWrapper');
+    if (!playerWrapper) return;
+
+    if (document.fullscreenElement) {
+        document.exitFullscreen();
+    } else if (playerWrapper.requestFullscreen) {
+        playerWrapper.requestFullscreen();
+    } else if (playerWrapper.webkitRequestFullscreen) {
+        playerWrapper.webkitRequestFullscreen();
+    } else if (playerWrapper.msRequestFullscreen) {
+        playerWrapper.msRequestFullscreen();
     }
 }
 
@@ -264,13 +295,15 @@ async function startPlaybackFromTime(startTime) {
     const token = checkAuth();
     if (!token || !currentDeviceId) return;
 
-    const playerInline = document.getElementById('playerInline');
     const videoPlayer = document.getElementById('videoPlayer');
+    const placeholder = document.getElementById('playerPlaceholder');
     const timeDisplay = document.getElementById('playerTimeDisplay');
+    const playerStatus = document.getElementById('playerStatus');
     const cursor = document.getElementById('timelineCursor');
 
-    // Show player
-    playerInline.style.display = 'block';
+    // Show video, hide placeholder
+    placeholder.classList.add('hidden');
+    videoPlayer.classList.add('active');
     currentPlaybackTime = startTime;
     isPlaying = true;
 
@@ -278,11 +311,18 @@ async function startPlaybackFromTime(startTime) {
     updateCursorPosition(startTime);
     cursor.classList.add('active');
 
-    // Update time display
-    timeDisplay.textContent = formatTime(startTime);
+    // Update time display and status
+    if (timeDisplay) timeDisplay.textContent = formatTime(startTime);
+    if (playerStatus) playerStatus.textContent = '載入中...';
 
-    // Build stream URL
-    const startISO = startTime.toISOString();
+    // Build stream URL - use local time format (not UTC)
+    const year = startTime.getFullYear();
+    const month = String(startTime.getMonth() + 1).padStart(2, '0');
+    const day = String(startTime.getDate()).padStart(2, '0');
+    const hours = String(startTime.getHours()).padStart(2, '0');
+    const minutes = String(startTime.getMinutes()).padStart(2, '0');
+    const seconds = String(startTime.getSeconds()).padStart(2, '0');
+    const startISO = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
     const streamUrl = `${API_BASE}/api/devices/${currentDeviceId}/recordings/stream?start=${encodeURIComponent(startISO)}&token=${token}`;
 
     console.log('[playback] Loading stream from:', startISO);
@@ -304,12 +344,14 @@ async function startPlaybackFromTime(startTime) {
         hlsPlayer.loadSource(streamUrl);
         hlsPlayer.attachMedia(videoPlayer);
 
-        hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function() {
+        hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function () {
             console.log('[playback] HLS manifest loaded, starting playback');
+            const playerStatus = document.getElementById('playerStatus');
+            if (playerStatus) playerStatus.textContent = '播放中';
             videoPlayer.play().catch(e => console.log('[playback] Autoplay blocked:', e));
         });
 
-        hlsPlayer.on(Hls.Events.ERROR, function(event, data) {
+        hlsPlayer.on(Hls.Events.ERROR, function (event, data) {
             console.error('[playback] HLS error:', data);
             if (data.fatal) {
                 switch (data.type) {
@@ -335,7 +377,7 @@ async function startPlaybackFromTime(startTime) {
     } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
         // Native HLS support (Safari)
         videoPlayer.src = streamUrl;
-        videoPlayer.addEventListener('loadedmetadata', function() {
+        videoPlayer.addEventListener('loadedmetadata', function () {
             videoPlayer.play().catch(e => console.log('[playback] Autoplay blocked:', e));
         });
     } else {
@@ -375,7 +417,7 @@ function updateCursorPosition(time) {
     cursor.style.left = `${Math.max(0, Math.min(100, percentage))}%`;
 }
 
-// Handle timeline hover
+// Handle timeline hover (desktop)
 function handleTimelineHover(event) {
     const timelineTrack = document.getElementById('timelineTrack');
     const hoverIndicator = document.getElementById('timelineHoverIndicator');
@@ -400,13 +442,45 @@ function handleTimelineHover(event) {
     hoverIndicator.style.left = `${hoverX}px`;
 }
 
+// Handle timeline touch (mobile)
+function handleTimelineTouch(event) {
+    if (event.touches.length === 0) return;
+
+    const touch = event.touches[0];
+    const timelineTrack = document.getElementById('timelineTrack');
+    const hoverIndicator = document.getElementById('timelineHoverIndicator');
+    const rect = timelineTrack.getBoundingClientRect();
+    const touchX = touch.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(1, touchX / rect.width));
+
+    const date = document.getElementById('timelineDate').value;
+    const dayStart = new Date(`${date}T00:00:00`);
+    const touchTime = new Date(dayStart.getTime() + percentage * 24 * 60 * 60 * 1000);
+
+    // Update hover indicator
+    const segment = findSegmentAtTime(touchTime);
+    const hoverTimeEl = hoverIndicator.querySelector('.hover-time');
+    hoverTimeEl.textContent = formatTime(touchTime) + (segment ? ' (有錄影)' : ' (無錄影)');
+    hoverIndicator.style.left = `${touchX}px`;
+    hoverIndicator.style.opacity = '1';
+}
+
+// Handle timeline touch move (mobile scrubbing)
+function handleTimelineTouchMove(event) {
+    handleTimelineTouch(event);
+}
+
 // Stop playback
 function stopPlayback() {
-    const playerInline = document.getElementById('playerInline');
     const videoPlayer = document.getElementById('videoPlayer');
+    const placeholder = document.getElementById('playerPlaceholder');
+    const playerStatus = document.getElementById('playerStatus');
+    const timeDisplay = document.getElementById('playerTimeDisplay');
     const cursor = document.getElementById('timelineCursor');
 
-    playerInline.style.display = 'none';
+    // Hide video, show placeholder
+    videoPlayer.classList.remove('active');
+    placeholder.classList.remove('hidden');
     videoPlayer.pause();
     videoPlayer.src = '';
     videoPlayer.removeEventListener('timeupdate', handleTimeUpdate);
@@ -419,6 +493,14 @@ function stopPlayback() {
     cursor.classList.remove('active');
     isPlaying = false;
     currentPlaybackTime = null;
+
+    // Reset UI
+    if (playerStatus) playerStatus.textContent = '等待播放';
+    if (timeDisplay) timeDisplay.textContent = '--:--:--';
+
+    // Reset timeline time display
+    const timelineTime = document.getElementById('timelineCurrentTime');
+    if (timelineTime) timelineTime.textContent = '--:--:--';
 }
 
 // Load recordings list
@@ -541,14 +623,17 @@ function downloadRecording(filename) {
 // Change date
 function changeDate(delta) {
     const dateInput = document.getElementById('timelineDate');
-    const currentDate = new Date(dateInput.value);
+    const currentDate = new Date(dateInput.value + 'T00:00:00'); // Parse as local time
     currentDate.setDate(currentDate.getDate() + delta);
-    dateInput.value = currentDate.toISOString().split('T')[0];
+    const year = currentDate.getFullYear();
+    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+    const day = String(currentDate.getDate()).padStart(2, '0');
+    dateInput.value = `${year}-${month}-${day}`;
     loadTimeline();
 }
 
 // Event listeners
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     checkAuth();
     loadDevices();
     initTimelineHours();
@@ -556,32 +641,156 @@ document.addEventListener('DOMContentLoaded', function() {
     // Set default date to today
     const dateInput = document.getElementById('timelineDate');
     dateInput.value = getTodayDate();
+    updateTimelineDateDisplay();
 
     // Device selector
     document.getElementById('deviceSelect').addEventListener('change', loadTimeline);
 
     // Date input
-    dateInput.addEventListener('change', loadTimeline);
-
-    // Date navigation buttons
-    document.getElementById('prevDayBtn').addEventListener('click', () => changeDate(-1));
-    document.getElementById('todayBtn').addEventListener('click', () => {
-        dateInput.value = getTodayDate();
+    dateInput.addEventListener('change', () => {
+        updateTimelineDateDisplay();
         loadTimeline();
     });
-    document.getElementById('nextDayBtn').addEventListener('click', () => changeDate(1));
 
-    // Refresh button
-    document.getElementById('refreshRecordingsBtn').addEventListener('click', loadTimeline);
+    // Date navigation buttons
+    document.getElementById('prevDayBtn').addEventListener('click', () => {
+        changeDate(-1);
+        updateTimelineDateDisplay();
+    });
+    document.getElementById('todayBtn').addEventListener('click', () => {
+        dateInput.value = getTodayDate();
+        updateTimelineDateDisplay();
+        loadTimeline();
+    });
+    document.getElementById('nextDayBtn').addEventListener('click', () => {
+        changeDate(1);
+        updateTimelineDateDisplay();
+    });
 
-    // Timeline click
-    document.getElementById('timelineTrack').addEventListener('click', handleTimelineClick);
+    // Refresh button (hidden but keep for compatibility)
+    const refreshBtn = document.getElementById('refreshRecordingsBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', loadTimeline);
+    }
 
-    // Timeline hover
-    document.getElementById('timelineTrack').addEventListener('mousemove', handleTimelineHover);
+    // Fullscreen button
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    if (fullscreenBtn) {
+        fullscreenBtn.addEventListener('click', toggleFullscreen);
+    }
 
-    // Close player button
-    document.getElementById('playerCloseBtn').addEventListener('click', stopPlayback);
+    // Timeline click and touch
+    const timelineTrack = document.getElementById('timelineTrack');
+    timelineTrack.addEventListener('click', handleTimelineClick);
+
+    // Touch support for timeline
+    timelineTrack.addEventListener('touchstart', handleTimelineTouch, { passive: true });
+    timelineTrack.addEventListener('touchmove', handleTimelineTouchMove, { passive: true });
+
+    // Desktop Mouse Dragging
+    let isDragging = false;
+    timelineTrack.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        handleTimelineClick(e); // Also treat click as start of drag
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (isDragging) {
+            e.preventDefault(); // Prevent text selection
+            const rect = timelineTrack.getBoundingClientRect();
+            // Check if mouse is within reasonable vertical bounds of timeline to continue dragging
+            if (e.clientY >= rect.top - 50 && e.clientY <= rect.bottom + 50) {
+                // Reuse logic from click/hover but we need to extract the time calculation
+                // For now, simpler to just treat it like a click at the new position
+                // But we don't want to re-trigger playback on every move, just update cursor
+
+                // So we need a specialized drag handler that updates cursor but only seeks on mouseup?
+                // User wants "better operation", usually scrubbing means seeking while dragging or updating indicator.
+                // Real-time seeking might be too heavy for HLS/API. 
+                // Let's just update the hover/cursor visual for now and seek on mouseup?
+                // Or, if we want true scrubbing, we need to be careful.
+
+                // Let's implement active cursor update during drag:
+                const clickX = e.clientX - rect.left;
+                const percentage = Math.max(0, Math.min(1, clickX / rect.width));
+                const date = document.getElementById('timelineDate').value;
+                const dayStart = new Date(`${date}T00:00:00`);
+                const dragTime = new Date(dayStart.getTime() + percentage * 24 * 60 * 60 * 1000);
+
+                updateCursorPosition(dragTime);
+                document.getElementById('timelineCurrentTime').textContent = formatTime(dragTime);
+
+                // Show hover indicator too
+                const hoverIndicator = document.getElementById('timelineHoverIndicator');
+                const hoverTimeEl = hoverIndicator.querySelector('.hover-time');
+                const segment = findSegmentAtTime(dragTime);
+                hoverTimeEl.textContent = formatTime(dragTime) + (segment ? ' (有錄影)' : ' (無錄影)');
+                hoverIndicator.style.left = `${Math.max(0, Math.min(rect.width, clickX))}px`;
+                hoverIndicator.style.opacity = '1';
+            } else {
+                isDragging = false;
+            }
+        }
+    });
+
+    document.addEventListener('mouseup', (e) => {
+        if (isDragging) {
+            isDragging = false;
+            // Now actually seek to the final position
+            const rect = timelineTrack.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            // Ensure click is within bounds relative to timeline width
+            if (e.clientX >= rect.left && e.clientX <= rect.right) {
+                const percentage = Math.max(0, Math.min(1, clickX / rect.width));
+                const date = document.getElementById('timelineDate').value;
+                const dayStart = new Date(`${date}T00:00:00`);
+                const finalTime = new Date(dayStart.getTime() + percentage * 24 * 60 * 60 * 1000);
+
+                // Check if valid segment
+                const segment = findSegmentAtTime(finalTime);
+                if (segment) {
+                    startPlaybackFromTime(finalTime);
+                }
+            }
+        }
+    });
+
+    // Timeline hover (desktop only)
+    timelineTrack.addEventListener('mousemove', (e) => {
+        if (!isDragging) handleTimelineHover(e);
+    });
+
+    // Close player button (hidden but keep for compatibility)
+    const playerCloseBtn = document.getElementById('playerCloseBtn');
+    if (playerCloseBtn) {
+        playerCloseBtn.addEventListener('click', stopPlayback);
+    }
+
+    // File panel toggle
+    const listToggleBtn = document.getElementById('listToggleBtn');
+    const filePanel = document.getElementById('filePanel');
+    const filePanelOverlay = document.getElementById('filePanelOverlay');
+    const closePanelBtn = document.getElementById('closePanelBtn');
+
+    function openFilePanel() {
+        if (filePanel) filePanel.classList.add('active');
+        if (filePanelOverlay) filePanelOverlay.classList.add('active');
+    }
+
+    function closeFilePanel() {
+        if (filePanel) filePanel.classList.remove('active');
+        if (filePanelOverlay) filePanelOverlay.classList.remove('active');
+    }
+
+    if (listToggleBtn) {
+        listToggleBtn.addEventListener('click', openFilePanel);
+    }
+    if (closePanelBtn) {
+        closePanelBtn.addEventListener('click', closeFilePanel);
+    }
+    if (filePanelOverlay) {
+        filePanelOverlay.addEventListener('click', closeFilePanel);
+    }
 
     // Logout
     document.getElementById('logoutBtn').addEventListener('click', () => {
@@ -590,8 +799,37 @@ document.addEventListener('DOMContentLoaded', function() {
         window.location.href = 'login.html';
     });
 
+    // Mobile Sidebar Toggle
+    const widthSidebarBtn = document.getElementById('widthSidebarBtn');
+    const sidebar = document.querySelector('.sidebar');
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+
+    if (widthSidebarBtn && sidebar && sidebarOverlay) {
+        widthSidebarBtn.addEventListener('click', () => {
+            sidebar.classList.add('active');
+            sidebarOverlay.classList.add('active');
+        });
+
+        function closeSidebar() {
+            sidebar.classList.remove('active');
+            sidebarOverlay.classList.remove('active');
+        }
+
+        sidebarOverlay.addEventListener('click', closeSidebar);
+
+        // Close sidebar when clicking a nav item on mobile
+        const navItems = document.querySelectorAll('.nav-item');
+        navItems.forEach(item => {
+            item.addEventListener('click', () => {
+                if (window.innerWidth <= 768) {
+                    closeSidebar();
+                }
+            });
+        });
+    }
+
     // Keyboard shortcuts
-    document.addEventListener('keydown', function(e) {
+    document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') {
             stopPlayback();
         }

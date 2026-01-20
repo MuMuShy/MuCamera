@@ -195,4 +195,34 @@ checkAuth();
 loadDevices();
 
 // Auto-refresh devices every 30 seconds
+// Auto-refresh devices every 30 seconds
 setInterval(loadDevices, 30000);
+
+// Mobile Sidebar Toggle
+const widthSidebarBtn = document.getElementById('widthSidebarBtn');
+const sidebar = document.querySelector('.sidebar');
+const sidebarOverlay = document.getElementById('sidebarOverlay');
+
+if (widthSidebarBtn && sidebar && sidebarOverlay) {
+    widthSidebarBtn.addEventListener('click', () => {
+        sidebar.classList.add('active');
+        sidebarOverlay.classList.add('active');
+    });
+
+    function closeSidebar() {
+        sidebar.classList.remove('active');
+        sidebarOverlay.classList.remove('active');
+    }
+
+    sidebarOverlay.addEventListener('click', closeSidebar);
+
+    // Close sidebar when clicking a nav item on mobile
+    const navItems = document.querySelectorAll('.nav-item');
+    navItems.forEach(item => {
+        item.addEventListener('click', () => {
+            if (window.innerWidth <= 768) {
+                closeSidebar();
+            }
+        });
+    });
+}

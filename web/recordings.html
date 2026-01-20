@@ -53,94 +53,87 @@
         <main class="main-content">
             <header class="top-bar">
                 <div class="page-title">
-                    <h2>錄影回放</h2>
-                </div>
-                <div class="actions">
-                    <button id="refreshRecordingsBtn" class="btn btn-secondary">
-                        重新整理
+                    <button id="widthSidebarBtn" class="hamburger-btn">
+                        <span>☰</span>
                     </button>
+                    <h2>錄影回放</h2>
                 </div>
             </header>
 
             <div class="content-area recordings-content">
-                <!-- Filters -->
-                <div class="recordings-filters">
-                    <div class="filter-group">
-                        <label for="deviceSelect">選擇裝置</label>
-                        <select id="deviceSelect" class="form-select">
-                            <option value="">載入中...</option>
-                        </select>
-                    </div>
-                    <div class="filter-group">
-                        <label for="timelineDate">日期</label>
-                        <input type="date" id="timelineDate" class="form-input">
-                    </div>
-                    <div class="filter-group">
-                        <button id="prevDayBtn" class="btn btn-secondary btn-sm">&lt; 前一天</button>
-                        <button id="todayBtn" class="btn btn-secondary btn-sm">今天</button>
-                        <button id="nextDayBtn" class="btn btn-secondary btn-sm">後一天 &gt;</button>
-                    </div>
-                </div>
-
-                <!-- Stats Panel -->
-                <div class="recordings-stats" id="statsPanel">
-                    <!-- Stats will be loaded dynamically -->
-                </div>
-
-                <!-- Timeline -->
-                <div class="timeline-container" id="timelineContainer">
-                    <div class="timeline-header">
-                        <span class="timeline-title">24 小時時間軸</span>
-                        <span class="timeline-current-time" id="timelineCurrentTime">--:--:--</span>
-                    </div>
-                    <div class="timeline-wrapper">
-                        <div class="timeline-hours">
-                            <!-- 時間刻度 -->
+                <!-- Video Player (Primary Focus - Takes Most Space) -->
+                <div class="player-section" id="playerSection">
+                    <div class="player-wrapper" id="playerWrapper">
+                        <div class="player-placeholder" id="playerPlaceholder">
+                            <div class="placeholder-content">
+                                <div class="placeholder-icon">▶</div>
+                                <p>點擊下方時間軸開始播放</p>
+                            </div>
                         </div>
+                        <video id="videoPlayer" controls playsinline></video>
+                    </div>
+                </div>
+
+                <!-- Timeline Control Panel -->
+                <div class="timeline-panel">
+                    <!-- Compact Controls Row -->
+                    <div class="timeline-controls">
+                        <select id="deviceSelect" class="control-select">
+                            <option value="">選擇裝置</option>
+                        </select>
+                        <div class="date-nav">
+                            <button id="prevDayBtn" class="nav-btn">◀</button>
+                            <input type="date" id="timelineDate" class="date-picker">
+                            <button id="nextDayBtn" class="nav-btn">▶</button>
+                        </div>
+                        <button id="todayBtn" class="today-btn">今天</button>
+                        <button id="listToggleBtn" class="list-btn" title="檔案列表">☰</button>
+                    </div>
+
+                    <!-- Timeline Track -->
+                    <div class="timeline-track-container">
+                        <div class="timeline-hours" id="timelineHours"></div>
                         <div class="timeline-track" id="timelineTrack">
-                            <!-- 錄影區段會動態加入 -->
                             <div class="timeline-cursor" id="timelineCursor"></div>
                             <div class="timeline-hover-indicator" id="timelineHoverIndicator">
                                 <span class="hover-time">--:--</span>
                             </div>
                         </div>
-                    </div>
-                    <div class="timeline-legend">
-                        <span class="legend-item"><span class="legend-color has-recording"></span> 有錄影</span>
-                        <span class="legend-item"><span class="legend-color no-recording"></span> 無錄影</span>
-                    </div>
-                </div>
-
-                <!-- Video Player (inline) -->
-                <div class="player-inline" id="playerInline" style="display: none;">
-                    <div class="player-header-inline">
-                        <span id="playerTimeDisplay">--:--:--</span>
-                        <div class="player-controls-inline">
-                            <button id="playerCloseBtn" class="btn btn-sm btn-secondary">關閉</button>
+                        <div class="timeline-time-display">
+                            <span id="timelineCurrentTime">--:--:--</span>
                         </div>
                     </div>
-                    <video id="videoPlayer" controls playsinline></video>
                 </div>
 
-                <!-- Recordings List (collapsed by default when timeline is shown) -->
-                <details class="recordings-list-details">
-                    <summary>錄影列表（點擊展開）</summary>
-                    <div class="recordings-list" id="recordingsList">
-                        <div class="empty-state">請選擇一個裝置來查看錄影</div>
+                <!-- Slide-in File List Panel -->
+                <div class="file-panel" id="filePanel">
+                    <div class="file-panel-header">
+                        <span>錄影檔案</span>
+                        <button id="closePanelBtn" class="close-panel-btn">✕</button>
                     </div>
-                </details>
-            </div>
+                    <div class="file-panel-content">
+                        <div class="recordings-list" id="recordingsList">
+                            <div class="empty-state">請選擇裝置</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="file-panel-overlay" id="filePanelOverlay"></div>
 
-            <!-- Video Player Overlay -->
-            <div id="playerOverlay" class="player-overlay">
-                <div class="player-container">
-                    <div class="player-header">
-                        <span id="playerFilename">--</span>
-                        <button id="closePlayerBtn" class="close-player-btn">&times;</button>
-                    </div>
-                    <video id="videoPlayer" controls playsinline></video>
+                <!-- Hidden elements for JS compatibility -->
+                <div style="display:none;">
+                    <span id="playerTimeDisplay"></span>
+                    <span id="playerStatus"></span>
+                    <span id="timelineDateDisplay"></span>
+                    <div id="statsPanel"></div>
+                    <div id="playerInfoBar"></div>
+                    <button id="playerCloseBtn"></button>
+                    <button id="refreshRecordingsBtn"></button>
+                    <button id="fullscreenBtn"></button>
                 </div>
             </div>
+
+            <!-- Sidebar Overlay -->
+            <div id="sidebarOverlay" class="sidebar-overlay"></div>
         </main>
     </div>
 
