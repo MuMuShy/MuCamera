@@ -188,6 +188,10 @@ body {
     font-weight: 600;
 }
 
+.hamburger-btn {
+    display: none;
+}
+
 .actions {
     display: flex;
     gap: 12px;
@@ -495,8 +499,15 @@ body {
 }
 
 @keyframes gps-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.4;
+    }
 }
 
 .gps-coords {
@@ -782,8 +793,61 @@ body {
 
 /* Responsive */
 @media (max-width: 768px) {
+
+    /* Mobile Sidebar Styling */
     .sidebar {
+        display: flex;
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        z-index: 1000;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        box-shadow: var(--shadow-lg);
+    }
+
+    .sidebar.active {
+        transform: translateX(0);
+    }
+
+    /* Sidebar Overlay */
+    .sidebar-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(2px);
+        z-index: 900;
         display: none;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .sidebar-overlay.active {
+        display: block;
+        opacity: 1;
+    }
+
+    /* Hamburger Button */
+    .hamburger-btn {
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        color: var(--text-main);
+        font-size: 1.5rem;
+        cursor: pointer;
+        padding: 4px;
+        margin-right: 12px;
+    }
+
+    .page-title {
+        display: flex;
+        align-items: center;
     }
 
     .top-bar {
@@ -794,40 +858,102 @@ body {
         padding: 16px;
     }
 
-    /* Fix for mobile live view */
-    .live-container {
+    /* Fix for mobile live view - Single Screen Layout */
+    .live-view-overlay.active {
+        position: fixed;
+        display: flex;
         flex-direction: column;
-        overflow-y: auto;
-        /* Allow scrolling */
+    }
+
+    .live-header {
+        flex: 0 0 60px;
+        /* Fixed header height */
+    }
+
+    .live-container {
+        flex: 1;
+        /* Take remaining height */
+        flex-direction: column;
+        overflow: hidden;
+        /* Prevent scrolling */
+        height: auto;
     }
 
     .video-stage {
-        flex: 0 0 auto;
-        /* Don't grow, stick to video size or aspect ratio */
-        height: auto;
-        min-height: 250px;
-        /* Minimum height for video */
-        max-height: 60vh;
+        flex: 1;
+        /* Take available space */
+        width: 100%;
         background-color: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+
+    #remoteVideo {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
     }
 
     .controls-sidebar {
+        flex: 0 0 auto;
+        /* Only take needed space */
         width: 100%;
         height: auto;
-        /* Let it grow */
         position: relative;
-        /* Normal flow */
         transform: none;
-        /* Reset transform */
         border-left: none;
         border-top: 1px solid var(--border-color);
-        padding-bottom: 40px;
-        /* Space for scrolling */
+        padding: 16px;
+        /* Reduced padding */
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        background-color: var(--bg-card);
+        z-index: 10;
+        max-height: 40vh;
+        /* Limit height to ensuring video stays visible */
+        overflow-y: auto;
+        /* Scroll only controls if really needed */
     }
 
-    .ptz-grid {
-        max-width: 300px;
-        margin: 0 auto 24px auto;
+    .control-group {
+        padding: 0;
+        border: none;
+    }
+
+    .control-title {
+        margin-bottom: 8px;
+        text-align: center;
+    }
+
+    /* Compact Zoom Controls for Mobile */
+    .zoom-controls {
+        display: flex;
+        gap: 8px;
+    }
+
+    .zoom-btn {
+        padding: 8px;
+        font-size: 0.9rem;
+    }
+
+    /* Hide GPS detail on mobile initial view to save space */
+    .gps-coords {
+        display: none !important;
+    }
+
+    /* Make GPS status compact */
+    .gps-info {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .gps-status {
+        margin-bottom: 0;
+        padding: 4px 8px;
     }
 }
 

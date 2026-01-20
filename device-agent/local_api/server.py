@@ -164,130 +164,6 @@ async def get_stats():
     return StatsResponse(**stats)
 
 
-@app.get("/recordings/{filename}")
-async def get_recording_info(filename: str):
-    """取得特定錄影的資訊"""
-    recording = indexer.get_recording(filename)
-    if not recording:
-        raise HTTPException(404, "找不到錄影")
-    return recording
-
-
-@app.get("/recordings/{filename}/download")
-async def download_recording(filename: str):
-    """直接下載錄影檔案"""
-    # 驗證檔名（防止路徑穿越）
-    if "/" in filename or "\\" in filename or ".." in filename:
-        raise HTTPException(400, "檔名無效")
-
-    file_path = Path(RECORDING_DIR) / filename
-    if not file_path.exists():
-        raise HTTPException(404, "找不到錄影檔案")
-
-    return FileResponse(
-        path=str(file_path),
-        filename=filename,
-        media_type="video/mp2t"
-    )
-
-
-@app.get("/recordings/{filename}/hls/playlist.m3u8")
-async def get_hls_playlist(filename: str):
-    """
-    取得錄影的 HLS 播放清單。
-
-    使用 ffmpeg 依需求產生 HLS 分段。
-    """
-    # 驗證檔名
-    if "/" in filename or "\\" in filename or ".." in filename:
-        raise HTTPException(400, "檔名無效")
-
-    source_path = Path(RECORDING_DIR) / filename
-    if not source_path.exists():
-        raise HTTPException(404, "找不到錄影檔案")
-
-    # 為此檔案建立快取目錄
-    file_hash = hashlib.md5(filename.encode()).hexdigest()[:8]
-    cache_dir = Path(HLS_CACHE_DIR) / file_hash
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-    playlist_path = cache_dir / "playlist.m3u8"
-
-    # 若未快取或來源較新，則產生 HLS
-    if not playlist_path.exists() or source_path.stat().st_mtime > playlist_path.stat().st_mtime:
-        logger.info(f"[local_api] 產生 HLS：{filename}")
-
-        # 清除舊分段
-        for old_file in cache_dir.glob("*.ts"):
-            old_file.unlink()
-        if playlist_path.exists():
-            playlist_path.unlink()
-
-        # 使用 ffmpeg 產生 HLS
-        cmd = [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel", "warning",
-            "-i", str(source_path),
-            "-c", "copy",
-            "-f", "hls",
-            "-hls_time", str(HLS_SEGMENT_DURATION),
-            "-hls_list_size", "0",
-            "-hls_segment_filename", str(cache_dir / "segment_%03d.ts"),
-            str(playlist_path)
-        ]
-
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=60  # 60 秒逾時
-            )
-
-            if process.returncode != 0:
-                logger.error(f"[local_api] ffmpeg 失敗：{stderr.decode()}")
-                raise HTTPException(500, "產生 HLS 播放清單失敗")
-
-            logger.info(f"[local_api] HLS 已產生：{filename}")
-
-        except asyncio.TimeoutError:
-            logger.error(f"[local_api] ffmpeg 逾時：{filename}")
-            raise HTTPException(500, "HLS 產生逾時")
-        except FileNotFoundError:
-            raise HTTPException(500, "找不到 ffmpeg")
-
-    # 回傳播放清單
-    return FileResponse(
-        path=str(playlist_path),
-        media_type="application/vnd.apple.mpegurl"
-    )
-
-
-@app.get("/recordings/{filename}/hls/{segment}")
-async def get_hls_segment(filename: str, segment: str):
-    """取得 HLS 分段檔案"""
-    # 驗證輸入
-    if "/" in filename or "\\" in filename or ".." in filename:
-        raise HTTPException(400, "檔名無效")
-    if not segment.endswith(".ts") or "/" in segment or "\\" in segment or ".." in segment:
-        raise HTTPException(400, "分段名稱無效")
-
-    file_hash = hashlib.md5(filename.encode()).hexdigest()[:8]
-    segment_path = Path(HLS_CACHE_DIR) / file_hash / segment
-
-    if not segment_path.exists():
-        raise HTTPException(404, "找不到分段")
-
-    return FileResponse(
-        path=str(segment_path),
-        media_type="video/mp2t"
-    )
-
-
 @app.get("/recordings/timeline")
 async def get_timeline(
     date: str = Query(..., description="日期（YYYY-MM-DD 格式）")
@@ -553,6 +429,130 @@ async def get_stream_segment(
     # 使用相同的快取 key
     cache_key = hashlib.md5(f"{start}_None".encode()).hexdigest()[:12]
     segment_path = Path(HLS_CACHE_DIR) / f"stream_{cache_key}" / segment
+
+    if not segment_path.exists():
+        raise HTTPException(404, "找不到分段")
+
+    return FileResponse(
+        path=str(segment_path),
+        media_type="video/mp2t"
+    )
+
+
+@app.get("/recordings/{filename}")
+async def get_recording_info(filename: str):
+    """取得特定錄影的資訊"""
+    recording = indexer.get_recording(filename)
+    if not recording:
+        raise HTTPException(404, "找不到錄影")
+    return recording
+
+
+@app.get("/recordings/{filename}/download")
+async def download_recording(filename: str):
+    """直接下載錄影檔案"""
+    # 驗證檔名（防止路徑穿越）
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(400, "檔名無效")
+
+    file_path = Path(RECORDING_DIR) / filename
+    if not file_path.exists():
+        raise HTTPException(404, "找不到錄影檔案")
+
+    return FileResponse(
+        path=str(file_path),
+        filename=filename,
+        media_type="video/mp2t"
+    )
+
+
+@app.get("/recordings/{filename}/hls/playlist.m3u8")
+async def get_hls_playlist(filename: str):
+    """
+    取得錄影的 HLS 播放清單。
+
+    使用 ffmpeg 依需求產生 HLS 分段。
+    """
+    # 驗證檔名
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(400, "檔名無效")
+
+    source_path = Path(RECORDING_DIR) / filename
+    if not source_path.exists():
+        raise HTTPException(404, "找不到錄影檔案")
+
+    # 為此檔案建立快取目錄
+    file_hash = hashlib.md5(filename.encode()).hexdigest()[:8]
+    cache_dir = Path(HLS_CACHE_DIR) / file_hash
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    playlist_path = cache_dir / "playlist.m3u8"
+
+    # 若未快取或來源較新，則產生 HLS
+    if not playlist_path.exists() or source_path.stat().st_mtime > playlist_path.stat().st_mtime:
+        logger.info(f"[local_api] 產生 HLS：{filename}")
+
+        # 清除舊分段
+        for old_file in cache_dir.glob("*.ts"):
+            old_file.unlink()
+        if playlist_path.exists():
+            playlist_path.unlink()
+
+        # 使用 ffmpeg 產生 HLS
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel", "warning",
+            "-i", str(source_path),
+            "-c", "copy",
+            "-f", "hls",
+            "-hls_time", str(HLS_SEGMENT_DURATION),
+            "-hls_list_size", "0",
+            "-hls_segment_filename", str(cache_dir / "segment_%03d.ts"),
+            str(playlist_path)
+        ]
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=60  # 60 秒逾時
+            )
+
+            if process.returncode != 0:
+                logger.error(f"[local_api] ffmpeg 失敗：{stderr.decode()}")
+                raise HTTPException(500, "產生 HLS 播放清單失敗")
+
+            logger.info(f"[local_api] HLS 已產生：{filename}")
+
+        except asyncio.TimeoutError:
+            logger.error(f"[local_api] ffmpeg 逾時：{filename}")
+            raise HTTPException(500, "HLS 產生逾時")
+        except FileNotFoundError:
+            raise HTTPException(500, "找不到 ffmpeg")
+
+    # 回傳播放清單
+    return FileResponse(
+        path=str(playlist_path),
+        media_type="application/vnd.apple.mpegurl"
+    )
+
+
+@app.get("/recordings/{filename}/hls/{segment}")
+async def get_hls_segment(filename: str, segment: str):
+    """取得 HLS 分段檔案"""
+    # 驗證輸入
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(400, "檔名無效")
+    if not segment.endswith(".ts") or "/" in segment or "\\" in segment or ".." in segment:
+        raise HTTPException(400, "分段名稱無效")
+
+    file_hash = hashlib.md5(filename.encode()).hexdigest()[:8]
+    segment_path = Path(HLS_CACHE_DIR) / file_hash / segment
 
     if not segment_path.exists():
         raise HTTPException(404, "找不到分段")

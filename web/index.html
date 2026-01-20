@@ -51,6 +51,9 @@
         <main class="main-content">
             <header class="top-bar">
                 <div class="page-title">
+                    <button id="widthSidebarBtn" class="hamburger-btn">
+                        <span>☰</span>
+                    </button>
                     <h2>儀表板</h2>
                 </div>
                 <div class="actions">
@@ -96,7 +99,8 @@
 
                             <!-- PTZ Controls Wrapper for JS -->
                             <div id="ptzControls">
-                                <div class="ptz-grid">
+                                <!-- Directional PTZ Hidden as per user request -->
+                                <div class="ptz-grid" style="display: none;">
                                     <!-- Use existing class names and data attributes for compatibility -->
                                     <button class="ptz-btn" data-action="move" data-pan="-0.5" data-tilt="0.5"
                                         disabled>↖</button>
@@ -119,7 +123,7 @@
                                         disabled>↘</button>
                                 </div>
 
-                                <h3 class="control-title" style="margin-top: 16px;">變焦與對焦</h3>
+                                <h3 class="control-title" style="margin-top: 0;">鏡頭控制</h3>
                                 <div class="zoom-controls">
                                     <button class="zoom-btn ptz-btn" data-action="move" data-zoom="-0.5">
                                         <span>-</span> 拉遠
@@ -198,6 +202,9 @@
                     style="color: var(--danger-color); margin-top: 16px; text-align: center; font-size: 0.9rem;"></p>
             </div>
         </div>
+
+        <!-- Sidebar Overlay -->
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
     </div>
 
     <script src="app.js?v=6"></script>

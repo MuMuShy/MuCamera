@@ -918,6 +918,7 @@ async def get_device_timeline(
     回傳該日所有錄影片段的起止時間。
     """
     import asyncio
+    import base64
 
     if not manager.is_device_online(device_id):
         raise HTTPException(status_code=503, detail="Device offline")
