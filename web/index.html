@@ -1,101 +1,181 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-TW">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MuMu Camera - Devices</title>
+    <title>MuMu Camera - 專業監控後台</title>
     <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
+
 <body>
-    <div class="container">
-        <header>
-            <h1>MuMu Camera System</h1>
-            <div class="user-info">
-                <span id="username"></span>
-                <button id="logoutBtn" class="btn btn-secondary">Logout</button>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">M</div>
+                <h1>MuMu Cam</h1>
             </div>
-        </header>
 
-        <main>
-            <section class="devices-section">
-                <h2>My Devices</h2>
-                <button id="refreshBtn" class="btn btn-primary">Refresh</button>
-                <button id="pairBtn" class="btn btn-primary">Pair Device</button>
-
-                <div id="devicesList" class="devices-list">
-                    <p class="loading">Loading devices...</p>
+            <div class="user-profile">
+                <div class="user-avatar">
+                    <span id="username-initial">U</span>
                 </div>
-            </section>
+                <div class="user-details">
+                    <div class="user-name" id="username">載入中...</div>
+                    <div class="user-role">管理員</div>
+                </div>
+            </div>
 
-            <section class="watch-section" id="watchSection" style="display: none;">
-                <h2>Watching: <span id="watchingDeviceName"></span></h2>
-                <button id="endWatchBtn" class="btn btn-danger">End Watch</button>
+            <nav class="nav-menu">
+                <div class="nav-item active">
+                    <span class="icon">裝置列表</span>
+                </div>
+                <!-- Future features -->
+                <div class="nav-item">
+                    <span class="icon">錄影回放</span>
+                </div>
+                <div class="nav-item">
+                    <span class="icon">系統設定</span>
+                </div>
+            </nav>
 
-                <div class="video-container">
-                    <video id="remoteVideo" autoplay playsinline></video>
-                    <div class="video-overlay">
-                        <div class="connection-status" id="connectionStatus">Connecting...</div>
+            <div class="sidebar-footer">
+                <button id="logoutBtn" class="nav-item" style="width: 100%; border: none; background: transparent;">
+                    <span>登出</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <div class="page-title">
+                    <h2>儀表板</h2>
+                </div>
+                <div class="actions">
+                    <button id="refreshBtn" class="btn btn-secondary">
+                        重新整理
+                    </button>
+                    <button id="pairBtn" class="btn btn-primary">
+                        + 配對新裝置
+                    </button>
+                </div>
+            </header>
+
+            <div class="content-area">
+                <div id="devicesList" class="devices-grid">
+                    <div class="loading-indicator">
+                        <div class="spinner"></div>
+                        <p>載入裝置中...</p>
                     </div>
                 </div>
+            </div>
 
-                <div class="session-info" style="display: none;">
-                    <p>Session ID: <span id="sessionId"></span></p>
-                    <p>Connection State: <span id="connectionState">New</span></p>
-                    <p>ICE State: <span id="iceState">New</span></p>
-                </div>
+            <!-- Live View Overlay (Hidden by default) -->
+            <div id="watchSection" class="live-view-overlay">
+                <header class="live-header">
+                    <button id="endWatchBtn" class="back-btn">
+                        ← 返回儀表板
+                    </button>
+                    <div class="live-status">
+                        <span id="watchingDeviceName" style="font-weight: 600; margin-right: 12px;">攝影機</span>
+                        <span class="connection-status" id="connectionStatus">連線中...</span>
+                    </div>
+                    <div><!-- Spacer or extra controls --></div>
+                </header>
 
-                <!-- PTZ Controls (ONVIF) -->
-                <div id="ptzControls" class="ptz-controls">
-                    <!-- Direction Control -->
-                    <div class="ptz-section">
-                        <h3>Direction</h3>
-                        <div class="ptz-dpad">
-                            <button class="ptz-btn" data-action="move" data-pan="0" data-tilt="0.5" title="Up">▲</button>
-                            <div class="ptz-middle-row">
-                                <button class="ptz-btn" data-action="move" data-pan="-0.5" data-tilt="0" title="Left">◀</button>
-                                <button class="ptz-btn ptz-home" data-action="stop" title="Stop">■</button>
-                                <button class="ptz-btn" data-action="move" data-pan="0.5" data-tilt="0" title="Right">▶</button>
+                <div class="live-container">
+                    <div class="video-stage">
+                        <video id="remoteVideo" autoplay playsinline muted></video>
+                    </div>
+
+                    <aside class="controls-sidebar">
+                        <div class="control-group">
+                            <h3 class="control-title">雲台控制 (PTZ)</h3>
+
+                            <!-- PTZ Controls Wrapper for JS -->
+                            <div id="ptzControls">
+                                <div class="ptz-grid">
+                                    <!-- Use existing class names and data attributes for compatibility -->
+                                    <button class="ptz-btn" data-action="move" data-pan="-0.5" data-tilt="0.5"
+                                        disabled>↖</button>
+                                    <button class="ptz-btn" data-action="move" data-pan="0" data-tilt="0.5"
+                                        title="上">▲</button>
+                                    <button class="ptz-btn" data-action="move" data-pan="0.5" data-tilt="0.5"
+                                        disabled>↗</button>
+
+                                    <button class="ptz-btn" data-action="move" data-pan="-0.5" data-tilt="0"
+                                        title="左">◀</button>
+                                    <button class="ptz-btn center ptz-home" data-action="stop" title="停止">停止</button>
+                                    <button class="ptz-btn" data-action="move" data-pan="0.5" data-tilt="0"
+                                        title="右">▶</button>
+
+                                    <button class="ptz-btn" data-action="move" data-pan="-0.5" data-tilt="-0.5"
+                                        disabled>↙</button>
+                                    <button class="ptz-btn" data-action="move" data-pan="0" data-tilt="-0.5"
+                                        title="下">▼</button>
+                                    <button class="ptz-btn" data-action="move" data-pan="0.5" data-tilt="-0.5"
+                                        disabled>↘</button>
+                                </div>
+
+                                <h3 class="control-title" style="margin-top: 16px;">變焦與對焦</h3>
+                                <div class="zoom-controls">
+                                    <button class="zoom-btn ptz-btn" data-action="move" data-zoom="-0.5">
+                                        <span>-</span> 拉遠
+                                    </button>
+                                    <button class="zoom-btn ptz-btn" data-action="move" data-zoom="0.5">
+                                        拉近 <span>+</span>
+                                    </button>
+                                </div>
+                                <div class="zoom-controls" style="margin-top: 8px;">
+                                    <button class="zoom-btn ptz-btn" data-action="focus" data-direction="near">
+                                        近焦
+                                    </button>
+                                    <button class="zoom-btn ptz-btn" data-action="auto_focus">
+                                        自動
+                                    </button>
+                                    <button class="zoom-btn ptz-btn" data-action="focus" data-direction="far">
+                                        遠焦
+                                    </button>
+                                </div>
                             </div>
-                            <button class="ptz-btn" data-action="move" data-pan="0" data-tilt="-0.5" title="Down">▼</button>
                         </div>
-                    </div>
 
-                    <!-- Zoom Control -->
-                    <div class="ptz-section">
-                        <h3>Zoom</h3>
-                        <div class="ptz-zoom">
-                            <button class="ptz-btn" data-action="move" data-zoom="-0.5" title="Zoom Out">-</button>
-                            <button class="ptz-btn" data-action="move" data-zoom="0.5" title="Zoom In">+</button>
+                        <!-- Removed static session info block to avoid confusion -->
+                        <div class="control-group">
+                            <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center;">
+                                <p>訊號狀態以頂部顯示為準</p>
+                            </div>
                         </div>
-                    </div>
-
-                    <!-- Focus Control -->
-                    <div class="ptz-section">
-                        <h3>Focus</h3>
-                        <div class="ptz-focus">
-                            <button class="ptz-btn" data-action="focus" data-direction="near" title="Focus Near">Near</button>
-                            <button class="ptz-btn" data-action="auto_focus" title="Auto Focus">Auto</button>
-                            <button class="ptz-btn" data-action="focus" data-direction="far" title="Focus Far">Far</button>
-                        </div>
-                    </div>
+                    </aside>
                 </div>
-            </section>
+            </div>
         </main>
 
         <!-- Pairing Modal -->
         <div id="pairingModal" class="modal">
             <div class="modal-content">
-                <span class="close">&times;</span>
-                <h2>Pair Device</h2>
-                <p>Enter the 6-digit pairing code displayed on your device:</p>
-                <input type="text" id="pairingCodeInput" maxlength="6" placeholder="000000">
-                <button id="submitPairingBtn" class="btn btn-primary">Pair</button>
-                <p id="pairingError" class="error"></p>
+                <button class="close-modal close">&times;</button>
+                <h2 class="modal-title">配對新裝置</h2>
+                <p class="modal-desc">請輸入顯示在攝影機裝置上的 6 位數代碼。</p>
+
+                <input type="text" id="pairingCodeInput" class="otp-input" maxlength="6" placeholder="000000"
+                    autocomplete="off">
+
+                <button id="submitPairingBtn" class="btn btn-primary" style="width: 100%; justify-content: center;">
+                    連線裝置
+                </button>
+
+                <p id="pairingError"
+                    style="color: var(--danger-color); margin-top: 16px; text-align: center; font-size: 0.9rem;"></p>
             </div>
         </div>
     </div>
 
-    <script src="app.js?v=4"></script>
-    <script src="webrtc.js?v=4"></script>
+    <script src="app.js?v=6"></script>
+    <script src="webrtc.js?v=6"></script>
 </body>
+
 </html>

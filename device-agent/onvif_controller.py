@@ -187,6 +187,58 @@ class ONVIFController:
             logger.error(f"[onvif] Move sync error: {e}")
             return {"success": False, "error": str(e)}
 
+    async def continuous_start(self, pan: float = 0, tilt: float = 0, zoom: float = 0) -> Dict[str, Any]:
+        """
+        Start continuous movement (non-blocking, use stop() to stop)
+
+        Args:
+            pan: Pan speed (-1.0 to 1.0)
+            tilt: Tilt speed (-1.0 to 1.0)
+            zoom: Zoom speed (-1.0 to 1.0)
+
+        Returns:
+            Dict with success status
+        """
+        if not await self.initialize():
+            return {"success": False, "error": "ONVIF not initialized"}
+
+        if not self._ptz:
+            return {"success": False, "error": "PTZ not available"}
+
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                self._continuous_start_sync,
+                pan, tilt, zoom
+            )
+            return result
+        except Exception as e:
+            logger.error(f"[onvif] Continuous start error: {e}")
+            return {"success": False, "error": str(e)}
+
+    def _continuous_start_sync(self, pan: float, tilt: float, zoom: float) -> Dict[str, Any]:
+        """Synchronous continuous start (non-blocking)"""
+        try:
+            pan = max(-1.0, min(1.0, pan))
+            tilt = max(-1.0, min(1.0, tilt))
+            zoom = max(-1.0, min(1.0, zoom))
+
+            req = self._ptz.create_type("ContinuousMove")
+            req.ProfileToken = self._profile_token
+            req.Velocity = {
+                "PanTilt": {"x": pan, "y": tilt},
+                "Zoom": {"x": zoom}
+            }
+
+            logger.info(f"[onvif] Starting continuous: pan={pan}, tilt={tilt}, zoom={zoom}")
+            self._ptz.ContinuousMove(req)
+
+            return {"success": True, "message": "Continuous move started"}
+        except Exception as e:
+            logger.error(f"[onvif] Continuous start sync error: {e}")
+            return {"success": False, "error": str(e)}
+
     async def stop(self) -> Dict[str, Any]:
         """Stop all PTZ movement"""
         if not await self.initialize():

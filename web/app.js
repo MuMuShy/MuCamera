@@ -15,7 +15,13 @@ function checkAuth() {
         return null;
     }
 
-    document.getElementById('username').textContent = user.username;
+    const usernameEl = document.getElementById('username');
+    if (usernameEl) usernameEl.textContent = user.username;
+
+    // Also set initial if available
+    const initialEl = document.getElementById('username-initial');
+    if (initialEl && user.username) initialEl.textContent = user.username[0].toUpperCase();
+
     return token;
 }
 
@@ -32,7 +38,6 @@ async function loadDevices() {
     if (!token) return;
 
     const devicesList = document.getElementById('devicesList');
-    devicesList.innerHTML = '<p class="loading">Loading devices...</p>';
 
     try {
         const response = await fetch(`${API_BASE}/api/devices?token=${token}`);
@@ -48,40 +53,39 @@ async function loadDevices() {
 
         if (devices.length === 0) {
             devicesList.innerHTML = `
-                <div class="empty-state">
-                    <p>No devices paired yet.</p>
-                    <p>Click "Pair Device" to add your first camera.</p>
+                <div class="empty-state" style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">
+                    <p>尚未配對任何裝置。</p>
+                    <p>點擊「配對新裝置」來新增您的第一台攝影機。</p>
                 </div>
             `;
             return;
         }
 
         devicesList.innerHTML = devices.map(device => `
-            <div class="device-card ${device.is_online ? 'online' : 'offline'}">
-                <div class="device-header">
-                    <h3>${device.device_name || device.device_id}</h3>
-                    <span class="status-badge">${device.is_online ? 'Online' : 'Offline'}</span>
+            <div class="device-card" onclick="startWatching('${device.device_id}')" style="${!device.is_online ? 'opacity: 0.6; cursor: not-allowed;' : ''}">
+                <div class="device-preview">
+                    ${device.is_online ? `
+                    <div class="signal-bars">
+                        <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                    </div>
+                    <span>預覽畫面</span>
+                    ` : '<span>離線</span>'}
                 </div>
                 <div class="device-info">
-                    <p><strong>ID:</strong> ${device.device_id}</p>
-                    <p><strong>Type:</strong> ${device.device_type}</p>
-                    <p><strong>Last Seen:</strong> ${device.last_seen ? new Date(device.last_seen).toLocaleString() : 'Never'}</p>
-                </div>
-                <div class="device-actions">
-                    <button
-                        class="btn btn-primary"
-                        onclick="startWatching('${device.device_id}')"
-                        ${!device.is_online ? 'disabled' : ''}
-                    >
-                        ${device.is_online ? 'Watch' : 'Offline'}
-                    </button>
+                    <div class="device-header">
+                        <span class="device-name">${device.device_name || device.device_id}</span>
+                        <div class="device-status ${device.is_online ? 'online' : ''}"></div>
+                    </div>
+                    <div class="device-meta">
+                        ID: ${device.device_id} • ${device.device_type}
+                    </div>
                 </div>
             </div>
         `).join('');
 
     } catch (error) {
         console.error('Error loading devices:', error);
-        devicesList.innerHTML = '<p class="error">Failed to load devices. Please try again.</p>';
+        devicesList.innerHTML = '<p class="error">載入裝置失敗，請稍後再試。</p>';
     }
 }
 
@@ -91,21 +95,23 @@ document.getElementById('refreshBtn').addEventListener('click', loadDevices);
 // Pairing modal
 const pairingModal = document.getElementById('pairingModal');
 const pairBtn = document.getElementById('pairBtn');
-const closeModal = document.querySelector('.close');
+const closeModal = document.querySelector('.close-modal');
 
 pairBtn.addEventListener('click', () => {
-    pairingModal.style.display = 'block';
-    document.getElementById('pairingCodeInput').value = '';
+    pairingModal.classList.add('active');
+    const input = document.getElementById('pairingCodeInput');
+    input.value = '';
+    input.focus();
     document.getElementById('pairingError').textContent = '';
 });
 
 closeModal.addEventListener('click', () => {
-    pairingModal.style.display = 'none';
+    pairingModal.classList.remove('active');
 });
 
 window.addEventListener('click', (e) => {
     if (e.target === pairingModal) {
-        pairingModal.style.display = 'none';
+        pairingModal.classList.remove('active');
     }
 });
 
@@ -118,9 +124,15 @@ document.getElementById('submitPairingBtn').addEventListener('click', async () =
     const errorEl = document.getElementById('pairingError');
 
     if (code.length !== 6) {
-        errorEl.textContent = 'Please enter a 6-digit code';
+        errorEl.textContent = '請輸入 6 位數代碼';
         return;
     }
+
+    // Show loading state on button
+    const submitBtn = document.getElementById('submitPairingBtn');
+    const originalText = submitBtn.textContent;
+    submitBtn.textContent = '連線中...';
+    submitBtn.disabled = true;
 
     try {
         const response = await fetch(`${API_BASE}/api/devices/pair`, {
@@ -137,15 +149,18 @@ document.getElementById('submitPairingBtn').addEventListener('click', async () =
         const data = await response.json();
 
         if (response.ok) {
-            pairingModal.style.display = 'none';
+            pairingModal.classList.remove('active');
             await loadDevices();
-            alert(`Device paired successfully: ${data.device.device_name || data.device.device_id}`);
+            // alert(`配對成功: ${data.device.device_name || data.device.device_id}`);
         } else {
-            errorEl.textContent = data.detail || 'Pairing failed';
+            errorEl.textContent = data.detail || '配對失敗';
         }
     } catch (error) {
         console.error('Pairing error:', error);
-        errorEl.textContent = 'Network error. Please try again.';
+        errorEl.textContent = '網路錯誤，請重試。';
+    } finally {
+        submitBtn.textContent = originalText;
+        submitBtn.disabled = false;
     }
 });
 
@@ -155,12 +170,15 @@ async function startWatching(deviceId) {
 
     const device = currentDevices.find(d => d.device_id === deviceId);
     if (!device) {
-        alert('Device not found');
+        return;
+    }
+
+    if (!device.is_online) {
         return;
     }
 
     document.getElementById('watchingDeviceName').textContent = device.device_name || device.device_id;
-    document.getElementById('watchSection').style.display = 'block';
+    document.getElementById('watchSection').classList.add('active');
 
     // Initialize WebRTC (see webrtc.js)
     await initializeWebRTC(deviceId);
@@ -168,8 +186,8 @@ async function startWatching(deviceId) {
 
 // End watching
 document.getElementById('endWatchBtn').addEventListener('click', () => {
-    endWatching();
-    document.getElementById('watchSection').style.display = 'none';
+    if (window.endWatching) window.endWatching();
+    document.getElementById('watchSection').classList.remove('active');
 });
 
 // Initialize on load

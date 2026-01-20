@@ -12,7 +12,7 @@ if (typeof window.MuMuCamera === 'undefined') {
     window.MuMuCamera = {};
 }
 
-(function() {
+(function () {
     'use strict';
 
     // Detect API base URL
@@ -41,11 +41,14 @@ if (typeof window.MuMuCamera === 'undefined') {
     /**
      * Initialize WebRTC connection using go2rtc
      */
-    window.initializeWebRTC = async function(deviceId) {
+    /**
+     * Initialize WebRTC connection using go2rtc
+     */
+    window.initializeWebRTC = async function (deviceId) {
         currentDeviceId = deviceId;
 
         try {
-            updateConnectionStatus('Connecting');
+            updateConnectionStatus('連線中...');
 
             // Connect to WebSocket for status updates
             ws = new WebSocket(`${WS_BASE}/ws/viewer`);
@@ -70,18 +73,18 @@ if (typeof window.MuMuCamera === 'undefined') {
 
             ws.onerror = (error) => {
                 console.error('WebSocket error:', error);
-                updateConnectionStatus('Error');
+                updateConnectionStatus('錯誤');
             };
 
             ws.onclose = () => {
                 console.log('WebSocket closed');
                 stopStream();
-                updateConnectionStatus('Disconnected');
+                updateConnectionStatus('已斷線');
             };
 
         } catch (error) {
             console.error('Error initializing stream:', error);
-            alert('Failed to connect. Please try again.');
+            alert('無法連線，請重試。');
         }
     };
 
@@ -94,7 +97,7 @@ if (typeof window.MuMuCamera === 'undefined') {
 
             // Create RTCPeerConnection
             pc = new RTCPeerConnection({
-                iceServers: [{urls: 'stun:stun.l.google.com:19302'}]
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
             });
 
             // Set up video element
@@ -104,7 +107,7 @@ if (typeof window.MuMuCamera === 'undefined') {
                 console.log('Received track:', event.track.kind);
                 if (event.streams && event.streams[0]) {
                     videoElement.srcObject = event.streams[0];
-                    updateConnectionStatus('Connected');
+                    updateConnectionStatus('已連線');
                     isStreamingActive = true;
                 }
             };
@@ -112,15 +115,15 @@ if (typeof window.MuMuCamera === 'undefined') {
             pc.oniceconnectionstatechange = () => {
                 console.log('ICE connection state:', pc.iceConnectionState);
                 if (pc.iceConnectionState === 'connected') {
-                    updateConnectionStatus('Streaming');
+                    updateConnectionStatus('監控中');
                 } else if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-                    updateConnectionStatus('Disconnected');
+                    updateConnectionStatus('已斷線');
                 }
             };
 
             // Add transceiver for receiving video
-            pc.addTransceiver('video', {direction: 'recvonly'});
-            pc.addTransceiver('audio', {direction: 'recvonly'});
+            pc.addTransceiver('video', { direction: 'recvonly' });
+            pc.addTransceiver('audio', { direction: 'recvonly' });
 
             // Create offer
             const offer = await pc.createOffer();
@@ -160,8 +163,8 @@ if (typeof window.MuMuCamera === 'undefined') {
 
         } catch (error) {
             console.error('Error starting WebRTC:', error);
-            updateConnectionStatus('Error');
-            alert('Failed to start video stream: ' + error.message);
+            updateConnectionStatus('錯誤');
+            alert('無法啟動視訊串流: ' + error.message);
         }
     }
 
@@ -178,7 +181,7 @@ if (typeof window.MuMuCamera === 'undefined') {
 
             case 'device_offline':
                 console.log('Device went offline');
-                updateConnectionStatus('Device Offline');
+                updateConnectionStatus('裝置離線');
                 stopStream();
                 break;
 
@@ -218,13 +221,13 @@ if (typeof window.MuMuCamera === 'undefined') {
         }
 
         currentDeviceId = null;
-        updateConnectionStatus('Disconnected');
+        updateConnectionStatus('已斷線');
     }
 
     /**
      * End watching
      */
-    window.endWatching = function() {
+    window.endWatching = function () {
         stopStream();
     };
 
@@ -235,9 +238,33 @@ if (typeof window.MuMuCamera === 'undefined') {
         const statusElement = document.getElementById('connectionStatus');
         if (statusElement) {
             statusElement.textContent = status;
-            statusElement.className = 'status-' + status.toLowerCase().replace(' ', '-');
+
+            // Map status text to classes for styling
+            let statusClass = 'status-default';
+            if (status.includes('連線中')) statusClass = 'status-connecting';
+            else if (status.includes('監控中') || status.includes('已連線')) statusClass = 'status-connected';
+            else if (status.includes('錯誤') || status.includes('離線') || status.includes('已斷線')) statusClass = 'status-error';
+
+            // We need to implement these classes in CSS if we want specific colors, 
+            // or we can just rely on the existing style and text change.
+            // Earlier styles.css has generic .connection-status.connected etc.
+
+            // For now, let's just clean up the class assignment to be robust
+            statusElement.className = 'connection-status ' + statusClass;
+
+            if (statusClass === 'status-connected') {
+                statusElement.style.backgroundColor = 'rgba(16, 185, 129, 0.2)';
+                statusElement.style.color = '#34d399';
+            } else if (statusClass === 'status-error') {
+                statusElement.style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
+                statusElement.style.color = '#f87171';
+            } else {
+                statusElement.style.backgroundColor = 'rgba(59, 130, 246, 0.2)';
+                statusElement.style.color = '#60a5fa';
+            }
         }
     }
+
 
     /**
      * Cleanup on page unload
@@ -249,7 +276,7 @@ if (typeof window.MuMuCamera === 'undefined') {
     /**
      * PTZ Control Functions
      */
-    window.sendPTZCommand = async function(action, params = {}) {
+    window.sendPTZCommand = async function (action, params = {}) {
         if (!currentDeviceId) {
             console.error('[PTZ] No device selected');
             return;
@@ -287,39 +314,118 @@ if (typeof window.MuMuCamera === 'undefined') {
 
     /**
      * Initialize PTZ controls when DOM is ready
+     * Uses continuous_start on press, stop on release for smooth control
      */
     function initPTZControls() {
         const ptzControls = document.getElementById('ptzControls');
         if (!ptzControls) return;
 
-        // Add click handlers to all PTZ buttons
+        let activeButton = null;
+        let isMoving = false;
+
+        // Parse button params
+        function getButtonParams(btn) {
+            const action = btn.dataset.action;
+            if (!action) return null;
+
+            const params = {};
+            if (btn.dataset.pan !== undefined) params.pan = parseFloat(btn.dataset.pan);
+            if (btn.dataset.tilt !== undefined) params.tilt = parseFloat(btn.dataset.tilt);
+            if (btn.dataset.zoom !== undefined) params.zoom = parseFloat(btn.dataset.zoom);
+            if (btn.dataset.direction !== undefined) params.direction = btn.dataset.direction;
+            if (btn.dataset.preset !== undefined) params.preset = parseInt(btn.dataset.preset);
+
+            return { action, params };
+        }
+
+        // Start continuous movement
+        function startMovement(btn) {
+            const config = getButtonParams(btn);
+            if (!config) return;
+
+            // Stop any existing movement first
+            if (isMoving) {
+                stopMovement();
+            }
+
+            activeButton = btn;
+            btn.classList.add('active');
+
+            // For move actions (pan/tilt/zoom), use continuous_start (non-blocking)
+            if (config.action === 'move') {
+                isMoving = true;
+                window.sendPTZCommand('continuous_start', config.params);
+            }
+            // For focus, use the original focus action with short duration (already smooth)
+            else if (config.action === 'focus') {
+                config.params.duration = 0.2;
+                window.sendPTZCommand('focus', config.params);
+            }
+            // For other actions (stop, auto_focus, preset), just send once
+            else {
+                window.sendPTZCommand(config.action, config.params);
+            }
+        }
+
+        // Stop movement
+        function stopMovement() {
+            if (activeButton) {
+                activeButton.classList.remove('active');
+                activeButton = null;
+            }
+
+            // Send stop command if we were moving
+            if (isMoving) {
+                isMoving = false;
+                window.sendPTZCommand('stop', {});
+            }
+        }
+
+        // Add event handlers to all PTZ buttons
         ptzControls.querySelectorAll('.ptz-btn').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                const action = btn.dataset.action;
-                if (!action) return;
+            // Mouse events
+            btn.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                startMovement(btn);
+            });
 
-                const params = {};
+            btn.addEventListener('mouseup', (e) => {
+                e.preventDefault();
+                stopMovement();
+            });
 
-                // Parse data attributes
-                if (btn.dataset.pan !== undefined) params.pan = parseFloat(btn.dataset.pan);
-                if (btn.dataset.tilt !== undefined) params.tilt = parseFloat(btn.dataset.tilt);
-                if (btn.dataset.zoom !== undefined) params.zoom = parseFloat(btn.dataset.zoom);
-                if (btn.dataset.direction !== undefined) params.direction = btn.dataset.direction;
-                if (btn.dataset.preset !== undefined) params.preset = parseInt(btn.dataset.preset);
-                if (btn.dataset.duration !== undefined) params.duration = parseFloat(btn.dataset.duration);
-
-                // Default duration for move actions
-                if (action === 'move' && params.duration === undefined) {
-                    params.duration = 0.3;
+            btn.addEventListener('mouseleave', (e) => {
+                if (activeButton === btn) {
+                    stopMovement();
                 }
+            });
 
-                btn.disabled = true;
-                await window.sendPTZCommand(action, params);
-                btn.disabled = false;
+            // Touch events for mobile
+            btn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                startMovement(btn);
+            });
+
+            btn.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                stopMovement();
+            });
+
+            btn.addEventListener('touchcancel', (e) => {
+                stopMovement();
+            });
+
+            // Prevent context menu on long press
+            btn.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
             });
         });
 
-        console.log('[PTZ] Controls initialized');
+        // Global mouseup/touchend to handle cases where mouse leaves button while pressed
+        document.addEventListener('mouseup', stopMovement);
+        document.addEventListener('touchend', stopMovement);
+
+        console.log('[PTZ] Controls initialized with continuous movement support');
     }
 
     // Initialize PTZ controls when DOM is loaded

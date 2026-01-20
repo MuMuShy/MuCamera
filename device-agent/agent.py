@@ -374,6 +374,13 @@ class Go2RTCProxyAgent:
                 duration = float(payload.get("duration", 0.5))
                 result = await self.onvif_controller.move(pan, tilt, zoom, duration)
 
+            elif action == "continuous_start":
+                # Non-blocking continuous move - use stop() to stop
+                pan = float(payload.get("pan", 0))
+                tilt = float(payload.get("tilt", 0))
+                zoom = float(payload.get("zoom", 0))
+                result = await self.onvif_controller.continuous_start(pan, tilt, zoom)
+
             elif action == "stop":
                 result = await self.onvif_controller.stop()
 

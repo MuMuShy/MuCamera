@@ -1,40 +1,43 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-TW">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MuMu Camera - Login</title>
+    <title>MuMu Camera - 登入</title>
     <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
+
 <body>
     <div class="container login-container">
         <div class="login-box">
             <h1>MuMu Camera</h1>
-            <p class="subtitle">Secure Camera Streaming System</p>
+            <p class="subtitle">安全監控串流系統</p>
 
             <div class="tabs">
-                <button class="tab-btn active" data-tab="login">Login</button>
-                <button class="tab-btn" data-tab="register">Register</button>
+                <button class="tab-btn active" data-tab="login">登入</button>
+                <button class="tab-btn" data-tab="register">註冊</button>
             </div>
 
             <!-- Login Form -->
             <form id="loginForm" class="auth-form">
                 <div class="form-group">
-                    <label for="loginUsername">Username</label>
+                    <label for="loginUsername">使用者名稱</label>
                     <input type="text" id="loginUsername" required>
                 </div>
                 <div class="form-group">
-                    <label for="loginPassword">Password</label>
+                    <label for="loginPassword">密碼</label>
                     <input type="password" id="loginPassword" required>
                 </div>
-                <button type="submit" class="btn btn-primary btn-block">Login</button>
+                <button type="submit" class="btn btn-primary btn-block">登入</button>
                 <p id="loginError" class="error"></p>
             </form>
 
             <!-- Register Form -->
             <form id="registerForm" class="auth-form" style="display: none;">
                 <div class="form-group">
-                    <label for="registerUsername">Username</label>
+                    <label for="registerUsername">使用者名稱</label>
                     <input type="text" id="registerUsername" required>
                 </div>
                 <div class="form-group">
@@ -42,14 +45,14 @@
                     <input type="email" id="registerEmail" required>
                 </div>
                 <div class="form-group">
-                    <label for="registerPassword">Password</label>
+                    <label for="registerPassword">密碼</label>
                     <input type="password" id="registerPassword" required>
                 </div>
                 <div class="form-group">
-                    <label for="registerPasswordConfirm">Confirm Password</label>
+                    <label for="registerPasswordConfirm">確認密碼</label>
                     <input type="password" id="registerPasswordConfirm" required>
                 </div>
-                <button type="submit" class="btn btn-primary btn-block">Register</button>
+                <button type="submit" class="btn btn-primary btn-block">註冊</button>
                 <p id="registerError" class="error"></p>
             </form>
         </div>
@@ -80,8 +83,8 @@
             try {
                 const response = await fetch(`${API_BASE}/api/auth/login`, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username, password})
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
                 });
 
                 const data = await response.json();
@@ -91,10 +94,10 @@
                     localStorage.setItem('user', JSON.stringify(data.user));
                     window.location.href = 'index.html';
                 } else {
-                    errorEl.textContent = data.detail || 'Login failed';
+                    errorEl.textContent = data.detail || '登入失敗';
                 }
             } catch (error) {
-                errorEl.textContent = 'Network error. Please try again.';
+                errorEl.textContent = '網路錯誤，請重試。';
             }
         });
 
@@ -108,15 +111,15 @@
             const errorEl = document.getElementById('registerError');
 
             if (password !== passwordConfirm) {
-                errorEl.textContent = 'Passwords do not match';
+                errorEl.textContent = '密碼不相符';
                 return;
             }
 
             try {
                 const response = await fetch(`${API_BASE}/api/auth/register`, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username, email, password})
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, password })
                 });
 
                 const data = await response.json();
@@ -126,10 +129,10 @@
                     localStorage.setItem('user', JSON.stringify(data.user));
                     window.location.href = 'index.html';
                 } else {
-                    errorEl.textContent = data.detail || 'Registration failed';
+                    errorEl.textContent = data.detail || '註冊失敗';
                 }
             } catch (error) {
-                errorEl.textContent = 'Network error. Please try again.';
+                errorEl.textContent = '網路錯誤，請重試。';
             }
         });
 
@@ -139,4 +142,5 @@
         }
     </script>
 </body>
+
 </html>
