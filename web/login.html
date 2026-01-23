@@ -4,62 +4,102 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>水下監視系統 - 登入</title>
+    <title>水下直播系統 - iHousing 水下影音科技</title>
     <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 </head>
 
 <body>
     <div class="container login-container">
         <div class="login-box">
-            <h1>水下監視系統</h1>
-            <p class="subtitle">安全監控串流系統</p>
+            <div style="text-align: center; margin-bottom: 24px;">
+                <div class="brand-icon" style="width: 64px; height: 64px; margin: 0 auto 16px; font-size: 1.5rem;">
+                    <i data-lucide="waves" style="width: 32px; height: 32px;"></i>
+                </div>
+            </div>
+            <h1>水下直播系統</h1>
+            <p class="subtitle">iHousing 水下影音科技</p>
 
             <div class="tabs">
-                <button class="tab-btn active" data-tab="login">登入</button>
-                <button class="tab-btn" data-tab="register">註冊</button>
+                <button class="tab-btn active" data-tab="login">
+                    <i data-lucide="log-in" style="width: 16px; height: 16px; margin-right: 6px; vertical-align: middle;"></i>
+                    登入
+                </button>
+                <button class="tab-btn" data-tab="register">
+                    <i data-lucide="user-plus" style="width: 16px; height: 16px; margin-right: 6px; vertical-align: middle;"></i>
+                    註冊
+                </button>
             </div>
 
             <!-- Login Form -->
             <form id="loginForm" class="auth-form">
                 <div class="form-group">
-                    <label for="loginUsername">使用者名稱</label>
-                    <input type="text" id="loginUsername" required>
+                    <label for="loginUsername">
+                        <i data-lucide="user" style="width: 14px; height: 14px; margin-right: 6px; vertical-align: middle;"></i>
+                        使用者名稱
+                    </label>
+                    <input type="text" id="loginUsername" placeholder="輸入使用者名稱" required>
                 </div>
                 <div class="form-group">
-                    <label for="loginPassword">密碼</label>
-                    <input type="password" id="loginPassword" required>
+                    <label for="loginPassword">
+                        <i data-lucide="lock" style="width: 14px; height: 14px; margin-right: 6px; vertical-align: middle;"></i>
+                        密碼
+                    </label>
+                    <input type="password" id="loginPassword" placeholder="輸入密碼" required>
                 </div>
-                <button type="submit" class="btn btn-primary btn-block">登入</button>
+                <button type="submit" class="btn btn-primary btn-block">
+                    <i data-lucide="arrow-right" style="width: 16px; height: 16px;"></i>
+                    登入
+                </button>
                 <p id="loginError" class="error"></p>
             </form>
 
             <!-- Register Form -->
             <form id="registerForm" class="auth-form" style="display: none;">
                 <div class="form-group">
-                    <label for="registerUsername">使用者名稱</label>
-                    <input type="text" id="registerUsername" required>
+                    <label for="registerUsername">
+                        <i data-lucide="user" style="width: 14px; height: 14px; margin-right: 6px; vertical-align: middle;"></i>
+                        使用者名稱
+                    </label>
+                    <input type="text" id="registerUsername" placeholder="選擇使用者名稱" required>
                 </div>
                 <div class="form-group">
-                    <label for="registerEmail">Email</label>
-                    <input type="email" id="registerEmail" required>
+                    <label for="registerEmail">
+                        <i data-lucide="mail" style="width: 14px; height: 14px; margin-right: 6px; vertical-align: middle;"></i>
+                        Email
+                    </label>
+                    <input type="email" id="registerEmail" placeholder="your@email.com" required>
                 </div>
                 <div class="form-group">
-                    <label for="registerPassword">密碼</label>
-                    <input type="password" id="registerPassword" required>
+                    <label for="registerPassword">
+                        <i data-lucide="lock" style="width: 14px; height: 14px; margin-right: 6px; vertical-align: middle;"></i>
+                        密碼
+                    </label>
+                    <input type="password" id="registerPassword" placeholder="建立密碼" required>
                 </div>
                 <div class="form-group">
-                    <label for="registerPasswordConfirm">確認密碼</label>
-                    <input type="password" id="registerPasswordConfirm" required>
+                    <label for="registerPasswordConfirm">
+                        <i data-lucide="shield-check" style="width: 14px; height: 14px; margin-right: 6px; vertical-align: middle;"></i>
+                        確認密碼
+                    </label>
+                    <input type="password" id="registerPasswordConfirm" placeholder="再次輸入密碼" required>
                 </div>
-                <button type="submit" class="btn btn-primary btn-block">註冊</button>
+                <button type="submit" class="btn btn-primary btn-block">
+                    <i data-lucide="user-plus" style="width: 16px; height: 16px;"></i>
+                    建立帳號
+                </button>
                 <p id="registerError" class="error"></p>
             </form>
         </div>
     </div>
 
     <script>
-        const API_BASE = window.location.origin.replace(':8080', ':8000');
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        const API_BASE = window.location.origin;
 
         // Tab switching
         document.querySelectorAll('.tab-btn').forEach(btn => {

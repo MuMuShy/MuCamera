@@ -4,9 +4,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>錄影回放 - 水下監視系統</title>
+    <title>錄影回放 - iHousing 水下直播系統</title>
     <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <!-- HLS.js for video playback -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
@@ -16,8 +18,10 @@
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="brand">
-                <div class="brand-icon">水</div>
-                <h1>水下監視系統</h1>
+                <div class="brand-icon">
+                    <i data-lucide="waves" style="width: 22px; height: 22px;"></i>
+                </div>
+                <h1>水下直播系統</h1>
             </div>
 
             <div class="user-profile">
@@ -32,18 +36,22 @@
 
             <nav class="nav-menu">
                 <a href="index.html" class="nav-item">
-                    <span class="icon">裝置列表</span>
+                    <span class="icon"><i data-lucide="layout-grid" style="width: 18px; height: 18px;"></i></span>
+                    <span>裝置列表</span>
                 </a>
                 <div class="nav-item active">
-                    <span class="icon">錄影回放</span>
+                    <span class="icon"><i data-lucide="film" style="width: 18px; height: 18px;"></i></span>
+                    <span>錄影回放</span>
                 </div>
                 <div class="nav-item">
-                    <span class="icon">系統設定</span>
+                    <span class="icon"><i data-lucide="settings" style="width: 18px; height: 18px;"></i></span>
+                    <span>系統設定</span>
                 </div>
             </nav>
 
             <div class="sidebar-footer">
                 <button id="logoutBtn" class="nav-item" style="width: 100%; border: none; background: transparent;">
+                    <span class="icon"><i data-lucide="log-out" style="width: 18px; height: 18px;"></i></span>
                     <span>登出</span>
                 </button>
             </div>
@@ -54,7 +62,7 @@
             <header class="top-bar">
                 <div class="page-title">
                     <button id="widthSidebarBtn" class="hamburger-btn">
-                        <span>☰</span>
+                        <i data-lucide="menu" style="width: 20px; height: 20px;"></i>
                     </button>
                     <h2>錄影回放</h2>
                 </div>
@@ -66,7 +74,9 @@
                     <div class="player-wrapper" id="playerWrapper">
                         <div class="player-placeholder" id="playerPlaceholder">
                             <div class="placeholder-content">
-                                <div class="placeholder-icon">▶</div>
+                                <div class="placeholder-icon">
+                                    <i data-lucide="play-circle" style="width: 48px; height: 48px;"></i>
+                                </div>
                                 <p>點擊下方時間軸開始播放</p>
                             </div>
                         </div>
@@ -82,12 +92,18 @@
                             <option value="">選擇裝置</option>
                         </select>
                         <div class="date-nav">
-                            <button id="prevDayBtn" class="nav-btn">◀</button>
+                            <button id="prevDayBtn" class="nav-btn">
+                                <i data-lucide="chevron-left" style="width: 16px; height: 16px;"></i>
+                            </button>
                             <input type="date" id="timelineDate" class="date-picker">
-                            <button id="nextDayBtn" class="nav-btn">▶</button>
+                            <button id="nextDayBtn" class="nav-btn">
+                                <i data-lucide="chevron-right" style="width: 16px; height: 16px;"></i>
+                            </button>
                         </div>
                         <button id="todayBtn" class="today-btn">今天</button>
-                        <button id="listToggleBtn" class="list-btn" title="檔案列表">☰</button>
+                        <button id="listToggleBtn" class="list-btn" title="檔案列表">
+                            <i data-lucide="list" style="width: 18px; height: 18px;"></i>
+                        </button>
                     </div>
 
                     <!-- Timeline Track -->
@@ -108,12 +124,20 @@
                 <!-- Slide-in File List Panel -->
                 <div class="file-panel" id="filePanel">
                     <div class="file-panel-header">
-                        <span>錄影檔案</span>
-                        <button id="closePanelBtn" class="close-panel-btn">✕</button>
+                        <span>
+                            <i data-lucide="folder-video" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+                            錄影檔案
+                        </span>
+                        <button id="closePanelBtn" class="close-panel-btn">
+                            <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+                        </button>
                     </div>
                     <div class="file-panel-content">
                         <div class="recordings-list" id="recordingsList">
-                            <div class="empty-state">請選擇裝置</div>
+                            <div class="empty-state">
+                                <i data-lucide="video-off" style="width: 32px; height: 32px; margin-bottom: 12px; opacity: 0.5;"></i>
+                                <p>請選擇裝置</p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -138,6 +162,10 @@
     </div>
 
     <script src="recordings.js"></script>
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+    </script>
 </body>
 
 </html>

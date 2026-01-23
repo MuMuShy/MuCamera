@@ -4,9 +4,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>水下監視系統 - 專業監控後台</title>
+    <title>水下直播系統 - iHousing 水下影音科技</title>
     <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 </head>
 
 <body>
@@ -14,8 +16,10 @@
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="brand">
-                <div class="brand-icon">水</div>
-                <h1>水下監視系統</h1>
+                <div class="brand-icon">
+                    <i data-lucide="waves" style="width: 22px; height: 22px;"></i>
+                </div>
+                <h1>水下直播系統</h1>
             </div>
 
             <div class="user-profile">
@@ -30,18 +34,22 @@
 
             <nav class="nav-menu">
                 <div class="nav-item active">
-                    <span class="icon">裝置列表</span>
+                    <span class="icon"><i data-lucide="layout-grid" style="width: 18px; height: 18px;"></i></span>
+                    <span>裝置列表</span>
                 </div>
                 <a href="recordings.html" class="nav-item">
-                    <span class="icon">錄影回放</span>
+                    <span class="icon"><i data-lucide="film" style="width: 18px; height: 18px;"></i></span>
+                    <span>錄影回放</span>
                 </a>
                 <div class="nav-item">
-                    <span class="icon">系統設定</span>
+                    <span class="icon"><i data-lucide="settings" style="width: 18px; height: 18px;"></i></span>
+                    <span>系統設定</span>
                 </div>
             </nav>
 
             <div class="sidebar-footer">
                 <button id="logoutBtn" class="nav-item" style="width: 100%; border: none; background: transparent;">
+                    <span class="icon"><i data-lucide="log-out" style="width: 18px; height: 18px;"></i></span>
                     <span>登出</span>
                 </button>
             </div>
@@ -52,16 +60,18 @@
             <header class="top-bar">
                 <div class="page-title">
                     <button id="widthSidebarBtn" class="hamburger-btn">
-                        <span>☰</span>
+                        <i data-lucide="menu" style="width: 20px; height: 20px;"></i>
                     </button>
                     <h2>裝置列表</h2>
                 </div>
                 <div class="actions">
                     <button id="refreshBtn" class="btn btn-secondary">
+                        <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
                         重新整理
                     </button>
                     <button id="pairBtn" class="btn btn-primary">
-                        + 配對新裝置
+                        <i data-lucide="plus" style="width: 16px; height: 16px;"></i>
+                        配對新裝置
                     </button>
                 </div>
             </header>
@@ -79,11 +89,15 @@
             <div id="watchSection" class="live-view-overlay">
                 <header class="live-header">
                     <button id="endWatchBtn" class="back-btn">
-                        ← 返回裝置列表
+                        <i data-lucide="arrow-left" style="width: 18px; height: 18px;"></i>
+                        返回裝置列表
                     </button>
                     <div class="live-status">
                         <span id="watchingDeviceName" style="font-weight: 600; margin-right: 12px;">攝影機</span>
-                        <span class="connection-status" id="connectionStatus">連線中...</span>
+                        <span class="connection-status" id="connectionStatus">
+                            <i data-lucide="wifi" style="width: 14px; height: 14px;"></i>
+                            連線中...
+                        </span>
                     </div>
                     <div><!-- Spacer or extra controls --></div>
                 </header>
@@ -95,51 +109,51 @@
 
                     <aside class="controls-sidebar">
                         <div class="control-group">
-                            <h3 class="control-title">雲台控制 (PTZ)</h3>
+                            <h3 class="control-title">
+                                <i data-lucide="move" style="width: 14px; height: 14px; margin-right: 8px; vertical-align: middle;"></i>
+                                雲台控制 (PTZ)
+                            </h3>
 
                             <!-- PTZ Controls Wrapper for JS -->
                             <div id="ptzControls">
                                 <!-- Directional PTZ Hidden as per user request -->
                                 <div class="ptz-grid" style="display: none;">
-                                    <!-- Use existing class names and data attributes for compatibility -->
-                                    <button class="ptz-btn" data-action="move" data-pan="-0.5" data-tilt="0.5"
-                                        disabled>↖</button>
-                                    <button class="ptz-btn" data-action="move" data-pan="0" data-tilt="0.5"
-                                        title="上">▲</button>
-                                    <button class="ptz-btn" data-action="move" data-pan="0.5" data-tilt="0.5"
-                                        disabled>↗</button>
-
-                                    <button class="ptz-btn" data-action="move" data-pan="-0.5" data-tilt="0"
-                                        title="左">◀</button>
+                                    <button class="ptz-btn" data-action="move" data-pan="-0.5" data-tilt="0.5" disabled>↖</button>
+                                    <button class="ptz-btn" data-action="move" data-pan="0" data-tilt="0.5" title="上">▲</button>
+                                    <button class="ptz-btn" data-action="move" data-pan="0.5" data-tilt="0.5" disabled>↗</button>
+                                    <button class="ptz-btn" data-action="move" data-pan="-0.5" data-tilt="0" title="左">◀</button>
                                     <button class="ptz-btn center ptz-home" data-action="stop" title="停止">停止</button>
-                                    <button class="ptz-btn" data-action="move" data-pan="0.5" data-tilt="0"
-                                        title="右">▶</button>
-
-                                    <button class="ptz-btn" data-action="move" data-pan="-0.5" data-tilt="-0.5"
-                                        disabled>↙</button>
-                                    <button class="ptz-btn" data-action="move" data-pan="0" data-tilt="-0.5"
-                                        title="下">▼</button>
-                                    <button class="ptz-btn" data-action="move" data-pan="0.5" data-tilt="-0.5"
-                                        disabled>↘</button>
+                                    <button class="ptz-btn" data-action="move" data-pan="0.5" data-tilt="0" title="右">▶</button>
+                                    <button class="ptz-btn" data-action="move" data-pan="-0.5" data-tilt="-0.5" disabled>↙</button>
+                                    <button class="ptz-btn" data-action="move" data-pan="0" data-tilt="-0.5" title="下">▼</button>
+                                    <button class="ptz-btn" data-action="move" data-pan="0.5" data-tilt="-0.5" disabled>↘</button>
                                 </div>
 
-                                <h3 class="control-title" style="margin-top: 0;">鏡頭控制</h3>
+                                <h3 class="control-title" style="margin-top: 0;">
+                                    <i data-lucide="zoom-in" style="width: 14px; height: 14px; margin-right: 8px; vertical-align: middle;"></i>
+                                    鏡頭控制
+                                </h3>
                                 <div class="zoom-controls">
                                     <button class="zoom-btn ptz-btn" data-action="move" data-zoom="-0.5">
-                                        <span>-</span> 拉遠
+                                        <i data-lucide="minus" style="width: 16px; height: 16px;"></i>
+                                        拉遠
                                     </button>
                                     <button class="zoom-btn ptz-btn" data-action="move" data-zoom="0.5">
-                                        拉近 <span>+</span>
+                                        拉近
+                                        <i data-lucide="plus" style="width: 16px; height: 16px;"></i>
                                     </button>
                                 </div>
                                 <div class="zoom-controls" style="margin-top: 8px;">
                                     <button class="zoom-btn ptz-btn" data-action="focus" data-direction="near">
+                                        <i data-lucide="scan" style="width: 14px; height: 14px;"></i>
                                         近焦
                                     </button>
                                     <button class="zoom-btn ptz-btn" data-action="auto_focus">
+                                        <i data-lucide="target" style="width: 14px; height: 14px;"></i>
                                         自動
                                     </button>
                                     <button class="zoom-btn ptz-btn" data-action="focus" data-direction="far">
+                                        <i data-lucide="maximize" style="width: 14px; height: 14px;"></i>
                                         遠焦
                                     </button>
                                 </div>
@@ -148,7 +162,10 @@
 
                         <!-- GPS 定位資訊 -->
                         <div class="control-group" id="gpsSection">
-                            <h3 class="control-title">GPS 定位</h3>
+                            <h3 class="control-title">
+                                <i data-lucide="map-pin" style="width: 14px; height: 14px; margin-right: 8px; vertical-align: middle;"></i>
+                                GPS 定位
+                            </h3>
                             <div id="gpsInfo" class="gps-info">
                                 <div class="gps-status">
                                     <span class="gps-indicator" id="gpsIndicator"></span>
@@ -174,6 +191,7 @@
                                 </div>
                                 <div class="gps-actions" id="gpsActions" style="display: none;">
                                     <a id="gpsMapLink" href="#" target="_blank" class="btn btn-secondary btn-sm">
+                                        <i data-lucide="external-link" style="width: 14px; height: 14px;"></i>
                                         開啟地圖
                                     </a>
                                 </div>
@@ -187,19 +205,21 @@
         <!-- Pairing Modal -->
         <div id="pairingModal" class="modal">
             <div class="modal-content">
-                <button class="close-modal close">&times;</button>
+                <button class="close-modal close">
+                    <i data-lucide="x" style="width: 18px; height: 18px;"></i>
+                </button>
                 <h2 class="modal-title">配對新裝置</h2>
                 <p class="modal-desc">請輸入顯示在攝影機裝置上的 6 位數代碼。</p>
 
                 <input type="text" id="pairingCodeInput" class="otp-input" maxlength="6" placeholder="000000"
                     autocomplete="off">
 
-                <button id="submitPairingBtn" class="btn btn-primary" style="width: 100%; justify-content: center;">
+                <button id="submitPairingBtn" class="btn btn-primary btn-block">
+                    <i data-lucide="link" style="width: 16px; height: 16px;"></i>
                     連線裝置
                 </button>
 
-                <p id="pairingError"
-                    style="color: var(--danger-color); margin-top: 16px; text-align: center; font-size: 0.9rem;"></p>
+                <p id="pairingError" style="color: var(--danger-color); margin-top: 16px; text-align: center; font-size: 0.9rem;"></p>
             </div>
         </div>
 
@@ -207,8 +227,12 @@
         <div id="sidebarOverlay" class="sidebar-overlay"></div>
     </div>
 
-    <script src="app.js?v=6"></script>
-    <script src="webrtc.js?v=6"></script>
+    <script src="app.js?v=7"></script>
+    <script src="webrtc.js?v=7"></script>
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+    </script>
 </body>
 
 </html>
