@@ -104,15 +104,17 @@ if (typeof window.MuMuCamera === 'undefined') {
                 // Detect stall: no new frames
                 if (currentFrames === lastFramesReceived && checkCount > 1) {
                     stallCount++;
-                    console.warn(`[health] No new frames (${stallCount}/2), total=${currentFrames}`);
+                    if (stallCount >= 3) {
+                        console.warn(`[health] No new frames (${stallCount}/4), total=${currentFrames}`);
+                    }
 
-                    if (stallCount >= 2) {
+                    if (stallCount >= 4) {
                         console.warn('[health] Stream frozen, reconnecting...');
                         updateConnectionStatus('重新連線中...');
                         reconnectStream();
                     }
                 } else {
-                    if (stallCount > 0) console.log('[health] Stream recovered');
+                    if (stallCount >= 3) console.log('[health] Stream recovered');
                     stallCount = 0;
                 }
 
@@ -120,7 +122,7 @@ if (typeof window.MuMuCamera === 'undefined') {
             } catch (e) {
                 // pc might be closed
             }
-        }, 2000);
+        }, 3000);
     }
 
     function stopHealthCheck() {
