@@ -22,6 +22,7 @@ from app.auth import (
     get_current_user,
 )
 from app.redis_client import redis_client
+from app.turn_credentials import get_ice_servers
 from app.websocket_handler import (
     manager,
     handle_device_message,
@@ -108,6 +109,16 @@ async def root():
 async def health():
     """Health check endpoint"""
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+
+
+@app.get("/api/turn/credentials")
+async def turn_credentials(token: str, db: AsyncSession = Depends(get_db)):
+    """Get TURN server credentials for WebRTC"""
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    ice_servers = get_ice_servers(str(user.id), use_public_host=True)
+    return {"ice_servers": ice_servers}
 
 
 # User authentication endpoints

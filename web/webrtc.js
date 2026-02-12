@@ -96,10 +96,22 @@ if (typeof window.MuMuCamera === 'undefined') {
         try {
             console.log('Starting WebRTC connection to go2rtc');
 
+            // Fetch TURN credentials from backend
+            let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+            try {
+                const token = localStorage.getItem('token');
+                const turnResp = await fetch(`${API_BASE}/api/turn/credentials?token=${token}`);
+                if (turnResp.ok) {
+                    const turnData = await turnResp.json();
+                    iceServers = turnData.ice_servers;
+                    console.log('Got TURN credentials, ICE servers:', iceServers.length);
+                }
+            } catch (e) {
+                console.warn('Failed to fetch TURN credentials, using STUN only:', e);
+            }
+
             // Create RTCPeerConnection
-            pc = new RTCPeerConnection({
-                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-            });
+            pc = new RTCPeerConnection({ iceServers });
 
             // Set up video element
             const videoElement = document.getElementById('remoteVideo');
