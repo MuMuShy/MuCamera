@@ -796,5 +796,38 @@ if (typeof window.MuMuCamera === 'undefined') {
         initPTZControls();
     }
 
+    /**
+     * Controls sidebar toggle (collapse/expand)
+     */
+    function initControlsToggle() {
+        const toggleBtn = document.getElementById('toggleControlsBtn');
+        const controlsSidebar = document.querySelector('#watchSection .controls-sidebar');
+        if (!toggleBtn || !controlsSidebar) return;
+
+        function setIcon(collapsed) {
+            const icon = collapsed ? 'panel-right-open' : 'panel-right-close';
+            toggleBtn.innerHTML = `<i data-lucide="${icon}" style="width: 20px; height: 20px;"></i>`;
+            lucide.createIcons({ nodes: [toggleBtn] });
+        }
+
+        toggleBtn.addEventListener('click', function () {
+            const collapsed = controlsSidebar.classList.toggle('collapsed');
+            localStorage.setItem('controls_collapsed', collapsed);
+            setIcon(collapsed);
+        });
+
+        // Restore preference
+        if (localStorage.getItem('controls_collapsed') === 'true') {
+            controlsSidebar.classList.add('collapsed');
+            setIcon(true);
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initControlsToggle);
+    } else {
+        initControlsToggle();
+    }
+
     console.log('[水下監視系統] webrtc.js loaded successfully');
 })();
