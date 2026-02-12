@@ -70,7 +70,7 @@ if (typeof window.MuMuCamera === 'undefined') {
             if (video.buffered.length > 0) {
                 const bufferedEnd = video.buffered.end(video.buffered.length - 1);
                 const lag = bufferedEnd - video.currentTime;
-                if (lag > 0.5) {
+                if (lag > 0.15) {
                     video.currentTime = bufferedEnd;
                 }
             }

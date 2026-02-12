@@ -239,8 +239,8 @@ class Go2RTCProxyAgent:
                 self.ws = await asyncio.wait_for(
                     websockets.connect(
                         self.backend_url,
-                        ping_interval=20,
-                        ping_timeout=10,
+                        ping_interval=5,
+                        ping_timeout=5,
                         close_timeout=5,
                         max_size=10 * 1024 * 1024
                     ),
@@ -565,7 +565,7 @@ class Go2RTCProxyAgent:
             url = self.go2rtc_http + path
 
             timeout = aiohttp.ClientTimeout(total=timeout_ms / 1000)
-            connector = aiohttp.TCPConnector(force_close=True, limit=10)
+            connector = aiohttp.TCPConnector(force_close=False, limit=10, keepalive_timeout=30)
 
             async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 async with session.request(
@@ -643,7 +643,7 @@ class Go2RTCProxyAgent:
             url = self.playback_http + path
 
             timeout = aiohttp.ClientTimeout(total=timeout_ms / 1000)
-            connector = aiohttp.TCPConnector(force_close=True, limit=10)
+            connector = aiohttp.TCPConnector(force_close=False, limit=10, keepalive_timeout=30)
 
             async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 async with session.request(
