@@ -78,6 +78,9 @@ if (typeof window.MuMuCamera === 'undefined') {
         stopHealthCheck();
         lastFramesReceived = 0;
         stallCount = 0;
+        let checkCount = 0;
+
+        console.log('[health] Monitor started');
 
         healthCheckInterval = setInterval(async () => {
             if (!pc || !isStreamingActive || isReconnecting) return;
@@ -92,9 +95,19 @@ if (typeof window.MuMuCamera === 'undefined') {
                     }
                 });
 
-                if (currentFrames > 0 && currentFrames === lastFramesReceived) {
-                    stallCount++;
-                    console.warn(`[health] Video stalled (${stallCount}/3), frames: ${currentFrames}`);
+                checkCount++;
+                // Log status every 5 checks (~15s)
+                if (checkCount % 5 === 0) {
+                    console.log(`[health] frames=${currentFrames}, stalls=${stallCount}, ice=${pc.iceConnectionState}`);
+                }
+
+                // Detect stall: no new frames (including never receiving any after 2 checks)
+                if (currentFrames === lastFramesReceived) {
+                    // Skip the very first check (frames not arrived yet)
+                    if (checkCount > 1) {
+                        stallCount++;
+                        console.warn(`[health] No new frames (${stallCount}/3), total=${currentFrames}`);
+                    }
 
                     if (stallCount >= 3) {
                         console.warn('[health] Stream frozen, reconnecting...');
