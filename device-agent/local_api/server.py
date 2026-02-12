@@ -32,7 +32,8 @@ from indexer import create_indexer
 logger = logging.getLogger(__name__)
 
 # 從環境變數讀取設定
-RECORDING_DIR = os.getenv("RECORDING_DIR", "/opt/mumucam/recordings/cam")
+RECORDING_DIR = os.getenv("RECORDING_DIR", "/mnt/usb/recordings/cam")
+RECORDING_DIR_CAM2 = os.getenv("RECORDING_DIR_CAM2", "/mnt/usb/recordings/cam2")
 HLS_CACHE_DIR = os.getenv("HLS_CACHE_DIR", "/tmp/mumucam-hls")
 HLS_SEGMENT_DURATION = int(os.getenv("HLS_SEGMENT_DURATION", "10"))
 LOCAL_API_HOST = os.getenv("LOCAL_API_HOST", "127.0.0.1")
@@ -45,8 +46,32 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# 初始化索引器
-indexer = create_indexer(recording_dir=RECORDING_DIR)
+# 多攝影機索引器
+_indexers = {}
+_recording_dirs = {
+    "cam": RECORDING_DIR,
+    "cam2": RECORDING_DIR_CAM2,
+}
+
+
+def get_indexer(source: str = "cam"):
+    """取得指定攝影機的索引器"""
+    if source not in _recording_dirs:
+        source = "cam"
+    if source not in _indexers:
+        rec_dir = _recording_dirs[source]
+        db_path = os.path.join(rec_dir, "recordings.db")
+        _indexers[source] = create_indexer(recording_dir=rec_dir, db_path=db_path)
+    return _indexers[source]
+
+
+def get_recording_dir(source: str = "cam") -> str:
+    """取得指定攝影機的錄影目錄"""
+    return _recording_dirs.get(source, RECORDING_DIR)
+
+
+# 保持向後相容
+indexer = None  # lazy init
 
 
 class RecordingResponse(BaseModel):
@@ -97,11 +122,15 @@ async def startup_event():
     # 確保 HLS 快取目錄存在
     Path(HLS_CACHE_DIR).mkdir(parents=True, exist_ok=True)
     logger.info(f"[local_api] 已啟動於 {LOCAL_API_HOST}:{LOCAL_API_PORT}")
-    logger.info(f"[local_api] 錄影目錄：{RECORDING_DIR}")
+    logger.info(f"[local_api] 錄影目錄：{_recording_dirs}")
     logger.info(f"[local_api] HLS 快取目錄：{HLS_CACHE_DIR}")
 
-    # 初始掃描
-    indexer.scan_directory()
+    # 確保所有錄影目錄存在並初始掃描
+    for source, rec_dir in _recording_dirs.items():
+        Path(rec_dir).mkdir(parents=True, exist_ok=True)
+        idx = get_indexer(source)
+        idx.scan_directory()
+        logger.info(f"[local_api] 已初始化索引器：{source} → {rec_dir}")
 
 
 @app.get("/health")
@@ -115,9 +144,12 @@ async def list_recordings(
     start_date: Optional[str] = Query(None, description="篩選開始日期（ISO 格式）"),
     end_date: Optional[str] = Query(None, description="篩選結束日期（ISO 格式）"),
     page: int = Query(1, ge=1, description="頁碼"),
-    limit: int = Query(50, ge=1, le=100, description="每頁數量")
+    limit: int = Query(50, ge=1, le=100, description="每頁數量"),
+    source: str = Query("cam", description="攝影機來源（cam 或 cam2）")
 ):
     """列出錄影，可選擇性地依時間篩選"""
+    idx = get_indexer(source)
+
     # 解析日期
     start_dt = None
     end_dt = None
@@ -135,18 +167,18 @@ async def list_recordings(
             raise HTTPException(400, "end_date 格式無效")
 
     # 掃描目錄以更新
-    indexer.scan_directory()
+    idx.scan_directory()
 
     # 查詢錄影
     offset = (page - 1) * limit
-    recordings = indexer.get_recordings(
+    recordings = idx.get_recordings(
         start_date=start_dt,
         end_date=end_dt,
         limit=limit,
         offset=offset
     )
 
-    stats = indexer.get_stats()
+    stats = idx.get_stats()
 
     return RecordingListResponse(
         recordings=[RecordingResponse(**r) for r in recordings],
@@ -157,22 +189,28 @@ async def list_recordings(
 
 
 @app.get("/recordings/stats", response_model=StatsResponse)
-async def get_stats():
+async def get_stats(
+    source: str = Query("cam", description="攝影機來源（cam 或 cam2）")
+):
     """取得錄影統計"""
-    indexer.scan_directory()
-    stats = indexer.get_stats()
+    idx = get_indexer(source)
+    idx.scan_directory()
+    stats = idx.get_stats()
     return StatsResponse(**stats)
 
 
 @app.get("/recordings/timeline")
 async def get_timeline(
-    date: str = Query(..., description="日期（YYYY-MM-DD 格式）")
+    date: str = Query(..., description="日期（YYYY-MM-DD 格式）"),
+    source: str = Query("cam", description="攝影機來源（cam 或 cam2）")
 ):
     """
     取得指定日期的錄影時間軸。
 
     回傳該日所有錄影片段的起止時間，供前端繪製時間軸。
     """
+    idx = get_indexer(source)
+
     # 解析日期
     try:
         target_date = datetime.strptime(date, "%Y-%m-%d").date()
@@ -184,8 +222,8 @@ async def get_timeline(
     end_dt = datetime.combine(target_date, datetime.max.time())
 
     # 掃描並查詢
-    indexer.scan_directory()
-    recordings = indexer.get_recordings(
+    idx.scan_directory()
+    recordings = idx.get_recordings(
         start_date=start_dt,
         end_date=end_dt,
         limit=1000,  # 一天最多 288 個 5 分鐘片段
@@ -225,7 +263,8 @@ async def get_timeline(
 @app.get("/recordings/stream")
 async def get_stream_playlist(
     start: str = Query(..., description="開始時間（ISO 格式）"),
-    end: Optional[str] = Query(None, description="結束時間（ISO 格式，可選）")
+    end: Optional[str] = Query(None, description="結束時間（ISO 格式，可選）"),
+    source: str = Query("cam", description="攝影機來源（cam 或 cam2）")
 ):
     """
     取得時間範圍的連續 HLS 播放清單。
@@ -233,6 +272,9 @@ async def get_stream_playlist(
     此端點會找出指定時間範圍內的所有錄影檔案，
     產生一個合併的 HLS 播放清單，實現跨檔連續播放。
     """
+    idx = get_indexer(source)
+    rec_dir = get_recording_dir(source)
+
     # 解析時間
     try:
         start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
@@ -250,12 +292,12 @@ async def get_stream_playlist(
         end_dt = datetime.now() + timedelta(hours=24)
 
     # 查詢時間範圍內的錄影
-    indexer.scan_directory()
+    idx.scan_directory()
 
     # 擴大查詢範圍以確保涵蓋起始時間所在的檔案
     query_start = start_dt - timedelta(seconds=RECORDING_SEGMENT_SECONDS)
 
-    recordings = indexer.get_recordings(
+    recordings = idx.get_recordings(
         start_date=query_start,
         end_date=end_dt,
         limit=1000,
@@ -306,7 +348,7 @@ async def get_stream_playlist(
     segment_index = 0
 
     for i, rec in enumerate(filtered_recordings):
-        source_path = Path(RECORDING_DIR) / rec["filename"]
+        source_path = Path(rec_dir) / rec["filename"]
         if not source_path.exists():
             logger.warning(f"[local_api] 檔案不存在：{rec['filename']}")
             continue
@@ -440,22 +482,29 @@ async def get_stream_segment(
 
 
 @app.get("/recordings/{filename}")
-async def get_recording_info(filename: str):
+async def get_recording_info(
+    filename: str,
+    source: str = Query("cam", description="攝影機來源")
+):
     """取得特定錄影的資訊"""
-    recording = indexer.get_recording(filename)
+    idx = get_indexer(source)
+    recording = idx.get_recording(filename)
     if not recording:
         raise HTTPException(404, "找不到錄影")
     return recording
 
 
 @app.get("/recordings/{filename}/download")
-async def download_recording(filename: str):
+async def download_recording(
+    filename: str,
+    source: str = Query("cam", description="攝影機來源")
+):
     """直接下載錄影檔案"""
     # 驗證檔名（防止路徑穿越）
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(400, "檔名無效")
 
-    file_path = Path(RECORDING_DIR) / filename
+    file_path = Path(get_recording_dir(source)) / filename
     if not file_path.exists():
         raise HTTPException(404, "找不到錄影檔案")
 
@@ -467,7 +516,10 @@ async def download_recording(filename: str):
 
 
 @app.get("/recordings/{filename}/hls/playlist.m3u8")
-async def get_hls_playlist(filename: str):
+async def get_hls_playlist(
+    filename: str,
+    source: str = Query("cam", description="攝影機來源")
+):
     """
     取得錄影的 HLS 播放清單。
 
@@ -477,7 +529,7 @@ async def get_hls_playlist(filename: str):
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(400, "檔名無效")
 
-    source_path = Path(RECORDING_DIR) / filename
+    source_path = Path(get_recording_dir(source)) / filename
     if not source_path.exists():
         raise HTTPException(404, "找不到錄影檔案")
 
@@ -564,9 +616,12 @@ async def get_hls_segment(filename: str, segment: str):
 
 
 @app.post("/scan")
-async def trigger_scan():
+async def trigger_scan(
+    source: str = Query("cam", description="攝影機來源")
+):
     """手動觸發目錄掃描"""
-    result = indexer.scan_directory()
+    idx = get_indexer(source)
+    result = idx.scan_directory()
     return result
 
 

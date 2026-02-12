@@ -9,6 +9,26 @@ let hlsPlayer = null;
 let timelineData = null;
 let currentPlaybackTime = null;
 let isPlaying = false;
+let currentRecordingSource = 'cam';
+
+// Switch recording source (cam / cam2)
+function switchRecordingSource(source) {
+    if (source === currentRecordingSource) return;
+    currentRecordingSource = source;
+
+    // Update button active state
+    document.querySelectorAll('.rec-source-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.src === source);
+    });
+
+    // Stop current playback
+    stopPlayback();
+
+    // Reload timeline and recordings for new source
+    if (currentDeviceId) {
+        loadTimeline();
+    }
+}
 
 // Check authentication
 function checkAuth() {
@@ -179,7 +199,7 @@ async function loadTimeline() {
     const timelineTrack = document.getElementById('timelineTrack');
 
     try {
-        const response = await fetch(`${API_BASE}/api/devices/${deviceId}/recordings/timeline?date=${date}&token=${token}`);
+        const response = await fetch(`${API_BASE}/api/devices/${deviceId}/recordings/timeline?date=${date}&source=${currentRecordingSource}&token=${token}`);
 
         if (response.status === 503) {
             console.error('Device offline');
@@ -323,7 +343,7 @@ async function startPlaybackFromTime(startTime) {
     const minutes = String(startTime.getMinutes()).padStart(2, '0');
     const seconds = String(startTime.getSeconds()).padStart(2, '0');
     const startISO = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
-    const streamUrl = `${API_BASE}/api/devices/${currentDeviceId}/recordings/stream?start=${encodeURIComponent(startISO)}&token=${token}`;
+    const streamUrl = `${API_BASE}/api/devices/${currentDeviceId}/recordings/stream?start=${encodeURIComponent(startISO)}&source=${currentRecordingSource}&token=${token}`;
 
     console.log('[playback] Loading stream from:', startISO);
 
@@ -521,7 +541,7 @@ async function loadRecordings() {
         const startDate = `${date}T00:00:00`;
         const endDate = `${date}T23:59:59`;
 
-        const url = `${API_BASE}/api/devices/${deviceId}/recordings?start_date=${startDate}&end_date=${endDate}&token=${token}`;
+        const url = `${API_BASE}/api/devices/${deviceId}/recordings?start_date=${startDate}&end_date=${endDate}&source=${currentRecordingSource}&token=${token}`;
         const response = await fetch(url);
 
         if (!response.ok) {
@@ -569,7 +589,7 @@ async function loadStats() {
     const statsPanel = document.getElementById('statsPanel');
 
     try {
-        const response = await fetch(`${API_BASE}/api/devices/${currentDeviceId}/recordings/stats?token=${token}`);
+        const response = await fetch(`${API_BASE}/api/devices/${currentDeviceId}/recordings/stats?source=${currentRecordingSource}&token=${token}`);
 
         if (!response.ok) return;
 
@@ -610,7 +630,7 @@ function downloadRecording(filename) {
     const token = checkAuth();
     if (!token || !currentDeviceId) return;
 
-    const downloadUrl = `${API_BASE}/api/devices/${currentDeviceId}/recordings/${filename}/download?token=${token}`;
+    const downloadUrl = `${API_BASE}/api/devices/${currentDeviceId}/recordings/${filename}/download?source=${currentRecordingSource}&token=${token}`;
 
     const a = document.createElement('a');
     a.href = downloadUrl;

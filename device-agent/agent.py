@@ -65,11 +65,13 @@ class Go2RTCProxyAgent:
         self.go2rtc_http = go2rtc_http
         self.playback_http = playback_http
 
-        # ONVIF PTZ Controller
-        self.onvif_controller: Optional[ONVIFController] = None
+        # ONVIF PTZ Controllers (multi-camera support)
+        self.onvif_controllers: dict[str, ONVIFController] = {}
+        self.onvif_controller: Optional[ONVIFController] = None  # 向後相容
         if onvif_config:
-            self.onvif_controller = ONVIFController(onvif_config)
-            logger.info(f"[onvif] PTZ control enabled for {onvif_config.ip}")
+            self.onvif_controllers["cam"] = ONVIFController(onvif_config)
+            self.onvif_controller = self.onvif_controllers["cam"]
+            logger.info(f"[onvif] PTZ control enabled for cam → {onvif_config.ip}")
 
         # GPS Manager (optional, non-blocking)
         self.gps_manager = gps_manager
@@ -381,17 +383,20 @@ class Go2RTCProxyAgent:
         """Handle PTZ control commands"""
         rid = payload.get("rid")
         action = payload.get("action")
+        source = payload.get("source", "cam")
 
-        logger.info(f"[ptz] Received command: {action} (rid={rid})")
+        logger.info(f"[ptz] Received command: {action} source={source} (rid={rid})")
         logger.info(f"[ptz] Payload: {payload}")
 
-        if not self.onvif_controller:
-            logger.error("[ptz] ONVIF controller not configured - check ONVIF_IP environment variable")
-            result = {"success": False, "error": "ONVIF not configured"}
+        # 選擇對應的 ONVIF controller
+        controller = self.onvif_controllers.get(source, self.onvif_controller)
+        if not controller:
+            logger.error(f"[ptz] ONVIF controller not configured for {source}")
+            result = {"success": False, "error": f"ONVIF not configured for {source}"}
             await self._send_ptz_response(rid, result)
             return
 
-        logger.info(f"[ptz] ONVIF controller exists, executing {action}...")
+        logger.info(f"[ptz] Using ONVIF controller for {source}, executing {action}...")
 
         try:
             if action == "move":
@@ -399,33 +404,33 @@ class Go2RTCProxyAgent:
                 tilt = float(payload.get("tilt", 0))
                 zoom = float(payload.get("zoom", 0))
                 duration = float(payload.get("duration", 0.5))
-                result = await self.onvif_controller.move(pan, tilt, zoom, duration)
+                result = await controller.move(pan, tilt, zoom, duration)
 
             elif action == "continuous_start":
                 # Non-blocking continuous move - use stop() to stop
                 pan = float(payload.get("pan", 0))
                 tilt = float(payload.get("tilt", 0))
                 zoom = float(payload.get("zoom", 0))
-                result = await self.onvif_controller.continuous_start(pan, tilt, zoom)
+                result = await controller.continuous_start(pan, tilt, zoom)
 
             elif action == "stop":
-                result = await self.onvif_controller.stop()
+                result = await controller.stop()
 
             elif action == "focus":
                 direction = payload.get("direction", "near")
                 speed = float(payload.get("speed", 0.5))
                 duration = float(payload.get("duration", 0.3))
-                result = await self.onvif_controller.focus(direction, speed, duration)
+                result = await controller.focus(direction, speed, duration)
 
             elif action == "auto_focus":
-                result = await self.onvif_controller.auto_focus()
+                result = await controller.auto_focus()
 
             elif action == "preset":
                 preset_num = int(payload.get("preset", 1))
-                result = await self.onvif_controller.go_to_preset(preset_num)
+                result = await controller.go_to_preset(preset_num)
 
             elif action == "capabilities":
-                result = await self.onvif_controller.get_capabilities()
+                result = await controller.get_capabilities()
 
             else:
                 result = {"success": False, "error": f"Unknown action: {action}"}
@@ -987,6 +992,19 @@ Examples:
         onvif_config=onvif_config,
         gps_manager=gps_manager
     )
+
+    # 載入額外攝影機的 ONVIF 設定（cam2）
+    onvif_ip_cam2 = os.getenv("ONVIF_IP_CAM2")
+    if onvif_ip_cam2:
+        cam2_config = ONVIFConfig(
+            ip=onvif_ip_cam2,
+            port=int(os.getenv("ONVIF_PORT_CAM2", "80")),
+            username=os.getenv("ONVIF_USER_CAM2", args.onvif_user or "admin"),
+            password=os.getenv("ONVIF_PASS_CAM2", args.onvif_pass or ""),
+            wsdl_dir=args.onvif_wsdl_dir
+        )
+        agent.onvif_controllers["cam2"] = ONVIFController(cam2_config)
+        logger.info(f"[onvif] PTZ control enabled for cam2 → {onvif_ip_cam2}")
 
     shutdown_event = asyncio.Event()
 

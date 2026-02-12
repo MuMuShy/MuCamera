@@ -461,6 +461,7 @@ class PTZControlRequest(BaseModel):
     direction: Optional[str] = "near"  # for focus: near/far
     speed: Optional[float] = 0.5
     preset: Optional[int] = 1
+    source: Optional[str] = "cam"  # cam or cam2
 
 
 @app.post("/api/devices/{device_id}/ptz")
@@ -492,7 +493,8 @@ async def ptz_control(
             "duration": ptz_request.duration,
             "direction": ptz_request.direction,
             "speed": ptz_request.speed,
-            "preset": ptz_request.preset
+            "preset": ptz_request.preset,
+            "source": ptz_request.source
         }
     }
 
@@ -732,6 +734,7 @@ async def get_device_recordings(
     end_date: Optional[str] = None,
     page: int = 1,
     limit: int = 50,
+    source: str = "cam",
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -756,6 +759,7 @@ async def get_device_recordings(
         params.append(f"end_date={end_date}")
     params.append(f"page={page}")
     params.append(f"limit={limit}")
+    params.append(f"source={source}")
     query_string = "&".join(params)
 
     # Send proxy request to device's playback API (port 8090)
@@ -802,6 +806,7 @@ async def get_device_recordings(
 @app.get("/api/devices/{device_id}/recordings/stats")
 async def get_device_recordings_stats(
     device_id: str,
+    source: str = "cam",
     db: AsyncSession = Depends(get_db)
 ):
     """Get recording statistics for a device."""
@@ -818,7 +823,7 @@ async def get_device_recordings_stats(
         "payload": {
             "rid": rid,
             "method": "GET",
-            "path": "/recordings/stats",
+            "path": f"/recordings/stats?source={source}",
             "headers": {},
             "body_b64": None,
             "timeout_ms": 10000
@@ -850,6 +855,7 @@ async def get_device_recordings_stats(
 async def get_recording_hls_playlist(
     device_id: str,
     filename: str,
+    source: str = "cam",
     db: AsyncSession = Depends(get_db)
 ):
     """Get HLS playlist for a recording (proxies to device)."""
@@ -867,7 +873,7 @@ async def get_recording_hls_playlist(
         "payload": {
             "rid": rid,
             "method": "GET",
-            "path": f"/recordings/{filename}/hls/playlist.m3u8",
+            "path": f"/recordings/{filename}/hls/playlist.m3u8?source={source}",
             "headers": {},
             "body_b64": None,
             "timeout_ms": 60000  # HLS generation can take time
@@ -953,6 +959,7 @@ async def get_recording_hls_segment(
 async def download_recording(
     device_id: str,
     filename: str,
+    source: str = "cam",
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -973,7 +980,7 @@ async def download_recording(
         "payload": {
             "rid": rid,
             "method": "GET",
-            "path": f"/recordings/{filename}/download",
+            "path": f"/recordings/{filename}/download?source={source}",
             "headers": {},
             "body_b64": None,
             "timeout_ms": 60000
@@ -1012,6 +1019,7 @@ async def download_recording(
 async def get_device_timeline(
     device_id: str,
     date: str,
+    source: str = "cam",
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -1032,7 +1040,7 @@ async def get_device_timeline(
         "payload": {
             "rid": rid,
             "method": "GET",
-            "path": f"/recordings/timeline?date={date}",
+            "path": f"/recordings/timeline?date={date}&source={source}",
             "headers": {},
             "body_b64": None,
             "timeout_ms": 10000
@@ -1066,6 +1074,7 @@ async def get_device_stream_playlist(
     device_id: str,
     start: str,
     end: Optional[str] = None,
+    source: str = "cam",
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -1085,6 +1094,7 @@ async def get_device_stream_playlist(
     query = f"start={start}"
     if end:
         query += f"&end={end}"
+    query += f"&source={source}"
 
     proxy_request = {
         "type": "proxy_playback",

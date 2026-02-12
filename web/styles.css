@@ -844,6 +844,40 @@ body {
     box-shadow: 0 2px 12px var(--primary-glow);
 }
 
+/* Recording Source Buttons (recordings page) */
+.rec-source-buttons {
+    display: flex;
+    gap: 4px;
+}
+
+.rec-source-btn {
+    padding: 6px 12px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    transition: var(--transition-fast);
+    white-space: nowrap;
+}
+
+.rec-source-btn:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--border-hover);
+    color: var(--text-main);
+}
+
+.rec-source-btn.active {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+}
+
 /* GPS Info */
 .gps-info {
     font-size: 0.85rem;

@@ -641,6 +641,7 @@ if (typeof window.MuMuCamera === 'undefined') {
 
         const payload = {
             action: action,
+            source: currentStreamSrc,
             ...params
         };
 

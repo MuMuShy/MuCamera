@@ -91,6 +91,16 @@
                         <select id="deviceSelect" class="control-select">
                             <option value="">選擇裝置</option>
                         </select>
+                        <div class="rec-source-buttons">
+                            <button class="rec-source-btn active" data-src="cam" onclick="switchRecordingSource('cam')">
+                                <i data-lucide="camera" style="width: 14px; height: 14px;"></i>
+                                攝影機 1
+                            </button>
+                            <button class="rec-source-btn" data-src="cam2" onclick="switchRecordingSource('cam2')">
+                                <i data-lucide="camera" style="width: 14px; height: 14px;"></i>
+                                攝影機 2
+                            </button>
+                        </div>
                         <div class="date-nav">
                             <button id="prevDayBtn" class="nav-btn">
                                 <i data-lucide="chevron-left" style="width: 16px; height: 16px;"></i>
