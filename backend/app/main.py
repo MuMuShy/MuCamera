@@ -567,6 +567,17 @@ async def proxy_to_device(
     if request.url.query:
         full_path = f"{full_path}?{request.url.query}"
 
+    # Filter request headers - only forward safe headers to device/go2rtc
+    # Forwarding browser headers like Accept-Encoding, Host etc. can cause issues
+    safe_request_headers = {}
+    skip_forward = {'host', 'accept-encoding', 'connection', 'keep-alive',
+                    'upgrade', 'sec-fetch-dest', 'sec-fetch-mode', 'sec-fetch-site',
+                    'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform',
+                    'origin', 'referer', 'cookie', 'authorization'}
+    for k, v in request.headers.items():
+        if k.lower() not in skip_forward:
+            safe_request_headers[k] = v
+
     # Send proxy request to device
     proxy_request = {
         "type": "proxy_http",
@@ -575,7 +586,7 @@ async def proxy_to_device(
             "rid": rid,
             "method": request.method,
             "path": full_path,
-            "headers": dict(request.headers),
+            "headers": safe_request_headers,
             "body_b64": body_b64,
             "timeout_ms": 30000
         }
@@ -601,12 +612,18 @@ async def proxy_to_device(
             # Decode body
             resp_body = base64.b64decode(resp_body_b64) if resp_body_b64 else b""
 
+            print(f"[proxy] Response body size: {len(resp_body)} bytes, b64 size: {len(resp_body_b64)}")
+            if full_path.startswith("/api/webrtc"):
+                print(f"[proxy] WebRTC response (first 200): {resp_body[:200]}")
+
             # Clean up
             await redis_client.delete(f"proxy:response:{rid}")
 
             # Normalize header names to lowercase and filter problematic headers
             # These headers will be handled by FastAPI/Starlette automatically
-            skip_headers = {'transfer-encoding', 'content-length', 'connection', 'keep-alive', 'date'}
+            # content-encoding must be skipped because aiohttp auto-decompresses
+            # but keeps the header, causing browsers to double-decompress
+            skip_headers = {'transfer-encoding', 'content-encoding', 'content-length', 'connection', 'keep-alive', 'date'}
             headers_filtered = {}
             for k, v in resp_headers.items():
                 k_lower = k.lower()

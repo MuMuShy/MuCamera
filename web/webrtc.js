@@ -163,13 +163,27 @@ if (typeof window.MuMuCamera === 'undefined') {
                 throw new Error(`go2rtc WebRTC failed: ${response.status} ${response.statusText}`);
             }
 
-            const answerSDP = await response.text();
-            console.log('Received answer from go2rtc');
+            const rawAnswer = await response.text();
+            const answerSDP = rawAnswer.trim();
+            console.log('Received answer from go2rtc, length:', answerSDP.length);
+            console.log('Answer (first 100 chars):', answerSDP.substring(0, 100));
+
+            // Decode SDP and log for debugging
+            const decodedSDP = atob(answerSDP);
+            console.log('Decoded SDP length:', decodedSDP.length);
+            console.log('=== DECODED SDP START ===');
+            console.log(decodedSDP);
+            console.log('=== DECODED SDP END ===');
+
+            // Count candidates in SDP
+            const candidateLines = decodedSDP.split('\n').filter(l => l.startsWith('a=candidate:'));
+            console.log('Candidates in SDP:', candidateLines.length);
+            candidateLines.forEach(c => console.log('  ', c.trim()));
 
             // Set remote description
             await pc.setRemoteDescription({
                 type: 'answer',
-                sdp: atob(answerSDP)
+                sdp: decodedSDP
             });
 
             console.log('WebRTC connection established');
