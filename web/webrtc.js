@@ -39,10 +39,13 @@ if (typeof window.MuMuCamera === 'undefined') {
     let isStreamingActive = false;
     let gpsPollingInterval = null;
     let latencyMonitorId = null;
+    let healthCheckInterval = null;
+    let lastFramesReceived = 0;
+    let stallCount = 0;
+    let isReconnecting = false;
 
     /**
      * Low-latency playback monitor
-     * Detects when video buffer grows too large and skips ahead to live edge
      */
     function startLatencyMonitor(video) {
         if (latencyMonitorId) cancelAnimationFrame(latencyMonitorId);
@@ -52,9 +55,7 @@ if (typeof window.MuMuCamera === 'undefined') {
             if (video.buffered.length > 0) {
                 const bufferedEnd = video.buffered.end(video.buffered.length - 1);
                 const lag = bufferedEnd - video.currentTime;
-                // If more than 0.5s behind live edge, skip ahead
                 if (lag > 0.5) {
-                    console.log(`[latency] Skipping ahead: ${lag.toFixed(2)}s behind`);
                     video.currentTime = bufferedEnd;
                 }
             }
@@ -67,6 +68,82 @@ if (typeof window.MuMuCamera === 'undefined') {
         if (latencyMonitorId) {
             cancelAnimationFrame(latencyMonitorId);
             latencyMonitorId = null;
+        }
+    }
+
+    /**
+     * Stream health monitor - detects frozen video and auto-reconnects
+     */
+    function startHealthCheck() {
+        stopHealthCheck();
+        lastFramesReceived = 0;
+        stallCount = 0;
+
+        healthCheckInterval = setInterval(async () => {
+            if (!pc || !isStreamingActive || isReconnecting) return;
+
+            try {
+                const stats = await pc.getStats();
+                let currentFrames = 0;
+
+                stats.forEach(report => {
+                    if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                        currentFrames = report.framesReceived || 0;
+                    }
+                });
+
+                if (currentFrames > 0 && currentFrames === lastFramesReceived) {
+                    stallCount++;
+                    console.warn(`[health] Video stalled (${stallCount}/3), frames: ${currentFrames}`);
+
+                    if (stallCount >= 3) {
+                        console.warn('[health] Stream frozen, reconnecting...');
+                        updateConnectionStatus('重新連線中...');
+                        reconnectStream();
+                    }
+                } else {
+                    if (stallCount > 0) console.log('[health] Stream recovered');
+                    stallCount = 0;
+                }
+
+                lastFramesReceived = currentFrames;
+            } catch (e) {
+                // pc might be closed
+            }
+        }, 3000);
+    }
+
+    function stopHealthCheck() {
+        if (healthCheckInterval) {
+            clearInterval(healthCheckInterval);
+            healthCheckInterval = null;
+        }
+        stallCount = 0;
+    }
+
+    /**
+     * Reconnect the WebRTC stream without closing WebSocket
+     */
+    async function reconnectStream() {
+        if (isReconnecting || !currentDeviceId) return;
+        isReconnecting = true;
+
+        stopLatencyMonitor();
+        stopHealthCheck();
+
+        // Close old peer connection
+        if (pc) {
+            pc.close();
+            pc = null;
+        }
+
+        try {
+            await startWebRTC(currentDeviceId);
+        } catch (e) {
+            console.error('[health] Reconnect failed:', e);
+            updateConnectionStatus('重連失敗');
+        } finally {
+            isReconnecting = false;
         }
     }
 
@@ -157,8 +234,9 @@ if (typeof window.MuMuCamera === 'undefined') {
                     updateConnectionStatus('已連線');
                     isStreamingActive = true;
 
-                    // Start low-latency playback monitor
+                    // Start monitors
                     startLatencyMonitor(videoElement);
+                    startHealthCheck();
                 }
             };
 
@@ -166,8 +244,19 @@ if (typeof window.MuMuCamera === 'undefined') {
                 console.log('ICE connection state:', pc.iceConnectionState);
                 if (pc.iceConnectionState === 'connected') {
                     updateConnectionStatus('監控中');
-                } else if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-                    updateConnectionStatus('已斷線');
+                    stallCount = 0;
+                } else if (pc.iceConnectionState === 'disconnected') {
+                    updateConnectionStatus('連線不穩...');
+                    // Wait 5s, if still disconnected, reconnect
+                    setTimeout(() => {
+                        if (pc && pc.iceConnectionState === 'disconnected') {
+                            console.warn('[ICE] Still disconnected, reconnecting...');
+                            reconnectStream();
+                        }
+                    }, 5000);
+                } else if (pc.iceConnectionState === 'failed') {
+                    updateConnectionStatus('重新連線中...');
+                    reconnectStream();
                 }
             };
 
@@ -409,8 +498,9 @@ if (typeof window.MuMuCamera === 'undefined') {
     function stopStream() {
         isStreamingActive = false;
 
-        // Stop latency monitor
+        // Stop monitors
         stopLatencyMonitor();
+        stopHealthCheck();
 
         // Stop GPS polling
         stopGPSPolling();
