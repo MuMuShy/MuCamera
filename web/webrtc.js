@@ -96,20 +96,17 @@ if (typeof window.MuMuCamera === 'undefined') {
                 });
 
                 checkCount++;
-                // Log status every 5 checks (~15s)
-                if (checkCount % 5 === 0) {
-                    console.log(`[health] frames=${currentFrames}, stalls=${stallCount}, ice=${pc.iceConnectionState}`);
+                // Log status every 8 checks (~16s)
+                if (checkCount % 8 === 0) {
+                    console.log(`[health] frames=${currentFrames}, ice=${pc.iceConnectionState}`);
                 }
 
-                // Detect stall: no new frames (including never receiving any after 2 checks)
-                if (currentFrames === lastFramesReceived) {
-                    // Skip the very first check (frames not arrived yet)
-                    if (checkCount > 1) {
-                        stallCount++;
-                        console.warn(`[health] No new frames (${stallCount}/3), total=${currentFrames}`);
-                    }
+                // Detect stall: no new frames
+                if (currentFrames === lastFramesReceived && checkCount > 1) {
+                    stallCount++;
+                    console.warn(`[health] No new frames (${stallCount}/2), total=${currentFrames}`);
 
-                    if (stallCount >= 3) {
+                    if (stallCount >= 2) {
                         console.warn('[health] Stream frozen, reconnecting...');
                         updateConnectionStatus('重新連線中...');
                         reconnectStream();
@@ -123,7 +120,7 @@ if (typeof window.MuMuCamera === 'undefined') {
             } catch (e) {
                 // pc might be closed
             }
-        }, 3000);
+        }, 2000);
     }
 
     function stopHealthCheck() {
@@ -137,27 +134,38 @@ if (typeof window.MuMuCamera === 'undefined') {
     /**
      * Reconnect the WebRTC stream without closing WebSocket
      */
-    async function reconnectStream() {
+    async function reconnectStream(retries = 3) {
         if (isReconnecting || !currentDeviceId) return;
         isReconnecting = true;
 
         stopLatencyMonitor();
         stopHealthCheck();
 
-        // Close old peer connection
-        if (pc) {
-            pc.close();
-            pc = null;
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            // Close old peer connection
+            if (pc) {
+                pc.close();
+                pc = null;
+            }
+
+            try {
+                console.log(`[health] Reconnect attempt ${attempt}/${retries}`);
+                updateConnectionStatus(`重新連線 (${attempt}/${retries})...`);
+                await startWebRTC(currentDeviceId);
+                console.log('[health] Reconnect succeeded');
+                isReconnecting = false;
+                return;
+            } catch (e) {
+                console.error(`[health] Attempt ${attempt} failed:`, e.message);
+                if (attempt < retries) {
+                    await new Promise(r => setTimeout(r, 2000));
+                }
+            }
         }
 
-        try {
-            await startWebRTC(currentDeviceId);
-        } catch (e) {
-            console.error('[health] Reconnect failed:', e);
-            updateConnectionStatus('重連失敗');
-        } finally {
-            isReconnecting = false;
-        }
+        isReconnecting = false;
+        updateConnectionStatus('重連失敗，點擊重試');
+        console.error('[health] All reconnect attempts failed');
     }
 
     /**
