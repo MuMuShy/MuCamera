@@ -142,28 +142,40 @@ if (typeof window.MuMuCamera === 'undefined') {
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
 
-            // Wait for ICE gathering to complete so offer includes all candidates
-            // go2rtc uses HTTP POST (no trickle ICE), so it needs browser's candidates
-            // in the offer to create TURN permissions for relay connectivity
-            console.log('Waiting for ICE gathering to complete...');
+            // Wait for ICE candidates - send as soon as we have a relay candidate
+            // go2rtc uses HTTP POST (no trickle ICE), needs browser's candidates
+            // for TURN permissions. Relay candidate is the key one for cross-NAT.
+            console.log('Gathering ICE candidates...');
             await new Promise((resolve) => {
                 if (pc.iceGatheringState === 'complete') {
                     resolve();
-                } else {
-                    const checkState = () => {
-                        if (pc.iceGatheringState === 'complete') {
-                            pc.removeEventListener('icegatheringstatechange', checkState);
-                            resolve();
-                        }
-                    };
-                    pc.addEventListener('icegatheringstatechange', checkState);
-                    // Timeout after 10 seconds to avoid hanging forever
-                    setTimeout(() => {
-                        pc.removeEventListener('icegatheringstatechange', checkState);
-                        console.warn('ICE gathering timed out, sending offer with available candidates');
-                        resolve();
-                    }, 10000);
+                    return;
                 }
+                let hasRelay = false;
+                let resolved = false;
+                const done = () => {
+                    if (resolved) return;
+                    resolved = true;
+                    pc.removeEventListener('icecandidate', onCandidate);
+                    pc.removeEventListener('icegatheringstatechange', onStateChange);
+                    resolve();
+                };
+                const onCandidate = (e) => {
+                    if (e.candidate) {
+                        console.log('Gathered:', e.candidate.type, e.candidate.address);
+                        if (e.candidate.type === 'relay' && !hasRelay) {
+                            hasRelay = true;
+                            // Got relay - wait 500ms more for extra candidates then send
+                            setTimeout(done, 500);
+                        }
+                    }
+                };
+                const onStateChange = () => {
+                    if (pc.iceGatheringState === 'complete') done();
+                };
+                pc.addEventListener('icecandidate', onCandidate);
+                pc.addEventListener('icegatheringstatechange', onStateChange);
+                setTimeout(done, 5000); // hard timeout
             });
 
             // Use the full local description which now includes gathered candidates
@@ -195,20 +207,10 @@ if (typeof window.MuMuCamera === 'undefined') {
 
             const rawAnswer = await response.text();
             const answerSDP = rawAnswer.trim();
-            console.log('Received answer from go2rtc, length:', answerSDP.length);
-            console.log('Answer (first 100 chars):', answerSDP.substring(0, 100));
-
-            // Decode SDP and log for debugging
             const decodedSDP = atob(answerSDP);
-            console.log('Decoded SDP length:', decodedSDP.length);
-            console.log('=== DECODED SDP START ===');
-            console.log(decodedSDP);
-            console.log('=== DECODED SDP END ===');
-
-            // Count candidates in SDP
-            const candidateLines = decodedSDP.split('\n').filter(l => l.startsWith('a=candidate:'));
-            console.log('Candidates in SDP:', candidateLines.length);
-            candidateLines.forEach(c => console.log('  ', c.trim()));
+            const remoteCandidates = decodedSDP.split('\n').filter(l => l.startsWith('a=candidate:'));
+            console.log('Answer received, remote candidates:', remoteCandidates.length);
+            remoteCandidates.forEach(c => console.log('  ', c.trim()));
 
             // Set remote description
             await pc.setRemoteDescription({
