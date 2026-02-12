@@ -110,6 +110,23 @@
                     <aside class="controls-sidebar">
                         <div class="control-group">
                             <h3 class="control-title">
+                                <i data-lucide="video" style="width: 14px; height: 14px; margin-right: 8px; vertical-align: middle;"></i>
+                                串流切換
+                            </h3>
+                            <div class="stream-switch-buttons">
+                                <button class="stream-switch-btn active" data-src="cam" onclick="switchStream('cam')">
+                                    <i data-lucide="camera" style="width: 14px; height: 14px;"></i>
+                                    攝影機 1
+                                </button>
+                                <button class="stream-switch-btn" data-src="cam2" onclick="switchStream('cam2')">
+                                    <i data-lucide="camera" style="width: 14px; height: 14px;"></i>
+                                    攝影機 2
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="control-group">
+                            <h3 class="control-title">
                                 <i data-lucide="move" style="width: 14px; height: 14px; margin-right: 8px; vertical-align: middle;"></i>
                                 雲台控制 (PTZ)
                             </h3>

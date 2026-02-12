@@ -36,6 +36,7 @@ if (typeof window.MuMuCamera === 'undefined') {
     let ws = null;
     let pc = null;
     let currentDeviceId = null;
+    let currentStreamSrc = 'cam';
     let isStreamingActive = false;
     let gpsPollingInterval = null;
     let latencyMonitorId = null;
@@ -335,9 +336,8 @@ if (typeof window.MuMuCamera === 'undefined') {
             console.log('Sending offer to go2rtc via proxy');
 
             // Send offer to go2rtc's WebRTC endpoint via proxy
-            // go2rtc WebRTC endpoint: POST /api/webrtc?src=cam
             const response = await fetch(
-                `${API_BASE}/api/devices/${deviceId}/proxy/api/webrtc?src=cam`,
+                `${API_BASE}/api/devices/${deviceId}/proxy/api/webrtc?src=${currentStreamSrc}`,
                 {
                     method: 'POST',
                     headers: {
@@ -588,6 +588,40 @@ if (typeof window.MuMuCamera === 'undefined') {
         }
     }
 
+
+    /**
+     * Switch stream source (e.g. 'cam' or 'cam2')
+     */
+    window.switchStream = async function (src) {
+        if (src === currentStreamSrc) return;
+        currentStreamSrc = src;
+        console.log(`[stream] Switching to: ${src}`);
+
+        // Update button active state
+        document.querySelectorAll('.stream-switch-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.src === src);
+        });
+
+        if (!currentDeviceId || !isStreamingActive) return;
+
+        // Reconnect with new stream source
+        stopLatencyMonitor();
+        stopHealthCheck();
+        if (pc) {
+            pc.close();
+            pc = null;
+        }
+        isReconnecting = true;
+        updateConnectionStatus('切換串流中...');
+        try {
+            await startWebRTC(currentDeviceId);
+            isReconnecting = false;
+        } catch (e) {
+            console.error('[stream] Switch failed:', e);
+            isReconnecting = false;
+            updateConnectionStatus('切換失敗');
+        }
+    };
 
     /**
      * Cleanup on page unload
