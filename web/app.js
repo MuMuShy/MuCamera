@@ -135,14 +135,13 @@ document.getElementById('submitPairingBtn').addEventListener('click', async () =
     submitBtn.disabled = true;
 
     try {
-        const response = await fetch(`${API_BASE}/api/devices/pair`, {
+        const response = await fetch(`${API_BASE}/api/devices/pair?token=${token}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                pairing_code: code,
-                token: token
+                pairing_code: code
             })
         });
 
