@@ -142,6 +142,36 @@ if (typeof window.MuMuCamera === 'undefined') {
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
 
+            // Wait for ICE gathering to complete so offer includes all candidates
+            // go2rtc uses HTTP POST (no trickle ICE), so it needs browser's candidates
+            // in the offer to create TURN permissions for relay connectivity
+            console.log('Waiting for ICE gathering to complete...');
+            await new Promise((resolve) => {
+                if (pc.iceGatheringState === 'complete') {
+                    resolve();
+                } else {
+                    const checkState = () => {
+                        if (pc.iceGatheringState === 'complete') {
+                            pc.removeEventListener('icegatheringstatechange', checkState);
+                            resolve();
+                        }
+                    };
+                    pc.addEventListener('icegatheringstatechange', checkState);
+                    // Timeout after 10 seconds to avoid hanging forever
+                    setTimeout(() => {
+                        pc.removeEventListener('icegatheringstatechange', checkState);
+                        console.warn('ICE gathering timed out, sending offer with available candidates');
+                        resolve();
+                    }, 10000);
+                }
+            });
+
+            // Use the full local description which now includes gathered candidates
+            const fullOffer = pc.localDescription;
+            const offerCandidates = fullOffer.sdp.split('\n').filter(l => l.startsWith('a=candidate:'));
+            console.log('Offer candidates:', offerCandidates.length);
+            offerCandidates.forEach(c => console.log('  ', c.trim()));
+
             console.log('Sending offer to go2rtc via proxy');
 
             // Send offer to go2rtc's WebRTC endpoint via proxy
@@ -154,7 +184,7 @@ if (typeof window.MuMuCamera === 'undefined') {
                         'Content-Type': 'application/x-www-form-urlencoded'
                     },
                     body: new URLSearchParams({
-                        data: btoa(offer.sdp)
+                        data: btoa(fullOffer.sdp)
                     })
                 }
             );
