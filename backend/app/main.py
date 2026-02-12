@@ -11,6 +11,9 @@ import uuid
 import base64
 import asyncio
 import json
+import logging
+
+logger = logging.getLogger("mumucam")
 
 from app.config import settings
 from app.database import get_db, engine
@@ -80,19 +83,41 @@ class DeviceResponse(BaseModel):
         from_attributes = True
 
 
+async def verify_device_ownership(db: AsyncSession, user: User, device_id: str) -> Device:
+    """Verify that the user owns the device. Raises 403 if not."""
+    result = await db.execute(
+        select(Device).where(Device.device_id == device_id)
+    )
+    device = result.scalar_one_or_none()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    result = await db.execute(
+        select(DeviceOwnership).where(
+            DeviceOwnership.device_id == device.id,
+            DeviceOwnership.user_id == user.id
+        )
+    )
+    ownership = result.scalar_one_or_none()
+    if not ownership:
+        raise HTTPException(status_code=403, detail="You do not own this device")
+
+    return device
+
+
 # Startup/Shutdown events
 @app.on_event("startup")
 async def startup_event():
     """Initialize connections on startup"""
     await redis_client.connect()
-    print("Redis connected")
+    logger.info("Redis connected")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up connections on shutdown"""
     await redis_client.disconnect()
-    print("Redis disconnected")
+    logger.info("Redis disconnected")
 
 
 # Health check
@@ -353,7 +378,7 @@ async def device_websocket(websocket: WebSocket, db: AsyncSession = Depends(get_
         if device_id:
             await manager.disconnect_device(device_id, db)
     except Exception as e:
-        print(f"Device WebSocket error: {e}")
+        logger.error(f"Device WebSocket error: {e}")
         if device_id:
             await manager.disconnect_device(device_id, db)
 
@@ -400,14 +425,14 @@ async def viewer_websocket(websocket: WebSocket, db: AsyncSession = Depends(get_
         # Handle messages
         while True:
             data = await websocket.receive_json()
-            print(f"Viewer {user_id} sent message: {data.get('type')}")
+            logger.info(f"Viewer {user_id} sent message: {data.get('type')}")
             await handle_viewer_message(user_id, data, db)
 
     except WebSocketDisconnect:
         if user_id:
             await manager.disconnect_viewer(user_id, db)
     except Exception as e:
-        print(f"Viewer WebSocket error: {e}")
+        logger.error(f"Viewer WebSocket error: {e}")
         if user_id:
             await manager.disconnect_viewer(user_id, db)
 
@@ -468,10 +493,16 @@ class PTZControlRequest(BaseModel):
 async def ptz_control(
     device_id: str,
     ptz_request: PTZControlRequest,
+    token: str,
     db: AsyncSession = Depends(get_db)
 ):
     """Send PTZ control command to device"""
     import uuid
+
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    await verify_device_ownership(db, user, device_id)
 
     # Check if device is online
     if not manager.is_device_online(device_id):
@@ -498,7 +529,7 @@ async def ptz_control(
         }
     }
 
-    print(f"[ptz] Sending {ptz_request.action} to device {device_id}, rid={rid}")
+    logger.info(f"[ptz] Sending {ptz_request.action} to device {device_id}, rid={rid}")
     await manager.send_to_device(device_id, ptz_message)
 
     # Wait for response (poll redis)
@@ -508,23 +539,29 @@ async def ptz_control(
     for attempt in range(20):  # Wait up to 10 seconds (20 * 0.5s)
         resp_data = await redis_client.get(f"ptz:response:{rid}")
         if resp_data:
-            print(f"[ptz] Got response for rid={rid}")
+            logger.info(f"[ptz] Got response for rid={rid}")
             await redis_client.delete(f"ptz:response:{rid}")
             return resp_data
 
         await asyncio.sleep(0.5)
 
     # Timeout - return success anyway since PTZ commands are fire-and-forget
-    print(f"[ptz] Timeout waiting for response rid={rid}, returning success")
+    logger.info(f"[ptz] Timeout waiting for response rid={rid}, returning success")
     return {"success": True, "message": "Command sent (no ack)"}
 
 
 @app.get("/api/devices/{device_id}/gps")
 async def get_device_gps(
     device_id: str,
+    token: str,
     db: AsyncSession = Depends(get_db)
 ):
     """Get device GPS data"""
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    await verify_device_ownership(db, user, device_id)
+
     from app.redis_client import redis_client
 
     # Get GPS data from Redis
@@ -552,6 +589,7 @@ async def get_device_sysinfo(
     user = await get_current_user(db, token)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid token")
+    await verify_device_ownership(db, user, device_id)
 
     sysinfo = await redis_client.get(f"device:sysinfo:{device_id}")
     if sysinfo:
@@ -575,6 +613,7 @@ async def send_control_command(
     user = await get_current_user(db, token)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid token")
+    await verify_device_ownership(db, user, device_id)
 
     if not manager.is_device_online(device_id):
         raise HTTPException(status_code=503, detail="Device offline")
@@ -594,7 +633,7 @@ async def send_control_command(
         }
     }
 
-    print(f"[control] Sending {request_body.command} to device {device_id}, rid={rid}")
+    logger.info(f"[control] Sending {request_body.command} to device {device_id}, rid={rid}")
     await manager.send_to_device(device_id, control_message)
 
     # Wait for response
@@ -664,7 +703,7 @@ async def proxy_to_device(
         }
     }
 
-    print(f"[proxy] Sending request to device {device_id}, rid={rid}, path={full_path}")
+    logger.info(f"[proxy] Sending request to device {device_id}, rid={rid}, path={full_path}")
     await manager.send_to_device(device_id, proxy_request)
 
     # Wait for response (poll redis)
@@ -675,7 +714,7 @@ async def proxy_to_device(
     for attempt in range(60):  # Wait up to 30 seconds (60 * 0.5s)
         resp_data = await redis_client.get(f"proxy:response:{rid}")
         if resp_data:
-            print(f"[proxy] Got response from Redis for rid={rid} after {attempt * 0.5}s")
+            logger.info(f"[proxy] Got response from Redis for rid={rid} after {attempt * 0.5}s")
             # Parse response (already decoded by redis_client.get)
             status = resp_data.get("status", 500)
             resp_headers = resp_data.get("headers", {})
@@ -684,9 +723,9 @@ async def proxy_to_device(
             # Decode body
             resp_body = base64.b64decode(resp_body_b64) if resp_body_b64 else b""
 
-            print(f"[proxy] Response body size: {len(resp_body)} bytes, b64 size: {len(resp_body_b64)}")
+            logger.debug(f"[proxy] Response body size: {len(resp_body)} bytes, b64 size: {len(resp_body_b64)}")
             if full_path.startswith("/api/webrtc"):
-                print(f"[proxy] WebRTC response (first 200): {resp_body[:200]}")
+                logger.debug(f"[proxy] WebRTC response (first 200): {resp_body[:200]}")
 
             # Clean up
             await redis_client.delete(f"proxy:response:{rid}")
@@ -702,7 +741,7 @@ async def proxy_to_device(
                 if k_lower not in skip_headers and k_lower not in headers_filtered:
                     headers_filtered[k_lower] = v
 
-            print(f"[proxy] Returning response with filtered headers: {list(headers_filtered.keys())}")
+            logger.debug(f"[proxy] Returning response with filtered headers: {list(headers_filtered.keys())}")
 
             # Return response - let FastAPI handle content-length automatically
             return Response(
@@ -714,7 +753,7 @@ async def proxy_to_device(
         await asyncio.sleep(0.5)
 
     # Timeout
-    print(f"[proxy] ✗ Timeout waiting for response rid={rid} from device {device_id}")
+    logger.error(f"[proxy] Timeout waiting for response rid={rid} from device {device_id}")
     raise HTTPException(status_code=504, detail="Proxy timeout")
 
 
@@ -730,6 +769,7 @@ class RecordingListResponse(BaseModel):
 @app.get("/api/devices/{device_id}/recordings")
 async def get_device_recordings(
     device_id: str,
+    token: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     page: int = 1,
@@ -743,6 +783,11 @@ async def get_device_recordings(
     """
     import asyncio
     import base64
+
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    await verify_device_ownership(db, user, device_id)
 
     # Check if device is online
     if not manager.is_device_online(device_id):
@@ -776,14 +821,14 @@ async def get_device_recordings(
         }
     }
 
-    print(f"[recordings] Fetching list from device {device_id}, rid={rid}")
+    logger.info(f"[recordings] Fetching list from device {device_id}, rid={rid}")
     await manager.send_to_device(device_id, proxy_request)
 
     # Wait for response
     for attempt in range(20):
         resp_data = await redis_client.get(f"playback:response:{rid}")
         if resp_data:
-            print(f"[recordings] Got response for rid={rid}")
+            logger.info(f"[recordings] Got response for rid={rid}")
             await redis_client.delete(f"playback:response:{rid}")
 
             # Check for error
@@ -806,11 +851,17 @@ async def get_device_recordings(
 @app.get("/api/devices/{device_id}/recordings/stats")
 async def get_device_recordings_stats(
     device_id: str,
+    token: str,
     source: str = "cam",
     db: AsyncSession = Depends(get_db)
 ):
     """Get recording statistics for a device."""
     import asyncio
+
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    await verify_device_ownership(db, user, device_id)
 
     if not manager.is_device_online(device_id):
         raise HTTPException(status_code=503, detail="Device offline")
@@ -855,12 +906,18 @@ async def get_device_recordings_stats(
 async def get_recording_hls_playlist(
     device_id: str,
     filename: str,
+    token: str,
     source: str = "cam",
     db: AsyncSession = Depends(get_db)
 ):
     """Get HLS playlist for a recording (proxies to device)."""
     import asyncio
     import base64
+
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    await verify_device_ownership(db, user, device_id)
 
     if not manager.is_device_online(device_id):
         raise HTTPException(status_code=503, detail="Device offline")
@@ -880,7 +937,7 @@ async def get_recording_hls_playlist(
         }
     }
 
-    print(f"[recordings] Getting HLS playlist for {filename} from {device_id}")
+    logger.info(f"[recordings] Getting HLS playlist for {filename} from {device_id}")
     await manager.send_to_device(device_id, proxy_request)
 
     for attempt in range(120):  # 60 seconds timeout
@@ -909,11 +966,17 @@ async def get_recording_hls_segment(
     device_id: str,
     filename: str,
     segment: str,
+    token: str,
     db: AsyncSession = Depends(get_db)
 ):
     """Get HLS segment for a recording (proxies to device)."""
     import asyncio
     import base64
+
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    await verify_device_ownership(db, user, device_id)
 
     if not manager.is_device_online(device_id):
         raise HTTPException(status_code=503, detail="Device offline")
@@ -959,6 +1022,7 @@ async def get_recording_hls_segment(
 async def download_recording(
     device_id: str,
     filename: str,
+    token: str,
     source: str = "cam",
     db: AsyncSession = Depends(get_db)
 ):
@@ -968,6 +1032,11 @@ async def download_recording(
     """
     import asyncio
     import base64
+
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    await verify_device_ownership(db, user, device_id)
 
     if not manager.is_device_online(device_id):
         raise HTTPException(status_code=503, detail="Device offline")
@@ -987,7 +1056,7 @@ async def download_recording(
         }
     }
 
-    print(f"[recordings] Download request for {filename} from {device_id}")
+    logger.info(f"[recordings] Download request for {filename} from {device_id}")
     await manager.send_to_device(device_id, proxy_request)
 
     for attempt in range(120):
@@ -1019,6 +1088,7 @@ async def download_recording(
 async def get_device_timeline(
     device_id: str,
     date: str,
+    token: str,
     source: str = "cam",
     db: AsyncSession = Depends(get_db)
 ):
@@ -1028,6 +1098,11 @@ async def get_device_timeline(
     """
     import asyncio
     import base64
+
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    await verify_device_ownership(db, user, device_id)
 
     if not manager.is_device_online(device_id):
         raise HTTPException(status_code=503, detail="Device offline")
@@ -1047,7 +1122,7 @@ async def get_device_timeline(
         }
     }
 
-    print(f"[timeline] Fetching timeline for {date} from {device_id}")
+    logger.info(f"[timeline] Fetching timeline for {date} from {device_id}")
     await manager.send_to_device(device_id, proxy_request)
 
     for attempt in range(20):
@@ -1073,6 +1148,7 @@ async def get_device_timeline(
 async def get_device_stream_playlist(
     device_id: str,
     start: str,
+    token: str,
     end: Optional[str] = None,
     source: str = "cam",
     db: AsyncSession = Depends(get_db)
@@ -1084,6 +1160,11 @@ async def get_device_stream_playlist(
     import asyncio
     import re
     from urllib.parse import quote
+
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    await verify_device_ownership(db, user, device_id)
 
     if not manager.is_device_online(device_id):
         raise HTTPException(status_code=503, detail="Device offline")
@@ -1109,7 +1190,7 @@ async def get_device_stream_playlist(
         }
     }
 
-    print(f"[stream] Fetching stream playlist from {start} to {end} for {device_id}")
+    logger.info(f"[stream] Fetching stream playlist from {start} to {end} for {device_id}")
     await manager.send_to_device(device_id, proxy_request)
 
     for attempt in range(240):  # 最多等待 120 秒
@@ -1134,7 +1215,7 @@ async def get_device_stream_playlist(
                 if line.strip().endswith('.ts') and not line.startswith('#'):
                     # 這是片段檔案名稱，加上正確的路徑前綴和參數
                     segment_name = line.strip()
-                    fixed_lines.append(f"stream/{segment_name}?start={encoded_start}")
+                    fixed_lines.append(f"stream/{segment_name}?start={encoded_start}&token={token}")
                 else:
                     fixed_lines.append(line)
             body = '\n'.join(fixed_lines)
@@ -1153,10 +1234,16 @@ async def get_device_stream_segment(
     device_id: str,
     segment: str,
     start: str,
+    token: str,
     db: AsyncSession = Depends(get_db)
 ):
     """取得合併串流的分段檔案"""
     import asyncio
+
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    await verify_device_ownership(db, user, device_id)
 
     if not manager.is_device_online(device_id):
         raise HTTPException(status_code=503, detail="Device offline")

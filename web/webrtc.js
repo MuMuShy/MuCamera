@@ -33,6 +33,20 @@ if (typeof window.MuMuCamera === 'undefined') {
     console.log('[水下監視系統] API_BASE:', API_BASE);
     console.log('[水下監視系統] WS_BASE:', WS_BASE);
 
+    /**
+     * Show toast notification (replaces alert)
+     */
+    function showToast(message, type = 'info') {
+        const existing = document.querySelector('.toast-notification');
+        if (existing) existing.remove();
+
+        const toast = document.createElement('div');
+        toast.className = `toast-notification toast-${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 5000);
+    }
+
     let ws = null;
     let pc = null;
     let currentDeviceId = null;
@@ -217,7 +231,7 @@ if (typeof window.MuMuCamera === 'undefined') {
 
         } catch (error) {
             console.error('Error initializing stream:', error);
-            alert('無法連線，請重試。');
+            showToast('無法連線，請重試。', 'error');
         }
     };
 
@@ -374,7 +388,7 @@ if (typeof window.MuMuCamera === 'undefined') {
         } catch (error) {
             console.error('Error starting WebRTC:', error);
             updateConnectionStatus('錯誤');
-            alert('無法啟動視訊串流: ' + error.message);
+            showToast('無法啟動視訊串流: ' + error.message, 'error');
         }
     }
 
@@ -425,7 +439,8 @@ if (typeof window.MuMuCamera === 'undefined') {
         if (!currentDeviceId) return;
 
         try {
-            const response = await fetch(`${API_BASE}/api/devices/${currentDeviceId}/gps`);
+            const token = localStorage.getItem('token');
+            const response = await fetch(`${API_BASE}/api/devices/${currentDeviceId}/gps?token=${token}`);
             if (!response.ok) return;
 
             const data = await response.json();
@@ -562,29 +577,16 @@ if (typeof window.MuMuCamera === 'undefined') {
         if (statusElement) {
             statusElement.textContent = status;
 
-            // Map status text to classes for styling
+            // Map status text to CSS classes (styles defined in styles.css)
             let statusClass = 'status-default';
-            if (status.includes('連線中')) statusClass = 'status-connecting';
+            if (status.includes('連線中') || status.includes('切換') || status.includes('重新連線')) statusClass = 'status-connecting';
             else if (status.includes('監控中') || status.includes('已連線')) statusClass = 'status-connected';
-            else if (status.includes('錯誤') || status.includes('離線') || status.includes('已斷線')) statusClass = 'status-error';
+            else if (status.includes('錯誤') || status.includes('離線') || status.includes('已斷線') || status.includes('失敗')) statusClass = 'status-error';
 
-            // We need to implement these classes in CSS if we want specific colors, 
-            // or we can just rely on the existing style and text change.
-            // Earlier styles.css has generic .connection-status.connected etc.
-
-            // For now, let's just clean up the class assignment to be robust
             statusElement.className = 'connection-status ' + statusClass;
-
-            if (statusClass === 'status-connected') {
-                statusElement.style.backgroundColor = 'rgba(16, 185, 129, 0.2)';
-                statusElement.style.color = '#34d399';
-            } else if (statusClass === 'status-error') {
-                statusElement.style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
-                statusElement.style.color = '#f87171';
-            } else {
-                statusElement.style.backgroundColor = 'rgba(59, 130, 246, 0.2)';
-                statusElement.style.color = '#60a5fa';
-            }
+            // Remove inline styles - CSS classes handle colors now
+            statusElement.style.backgroundColor = '';
+            statusElement.style.color = '';
         }
     }
 
@@ -648,7 +650,8 @@ if (typeof window.MuMuCamera === 'undefined') {
         console.log(`[PTZ] Sending ${action} to ${currentDeviceId}:`, params);
 
         try {
-            const response = await fetch(`${API_BASE}/api/devices/${currentDeviceId}/ptz`, {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`${API_BASE}/api/devices/${currentDeviceId}/ptz?token=${token}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'

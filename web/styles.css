@@ -817,6 +817,7 @@ body {
 .stream-switch-btn {
     flex: 1;
     padding: 12px;
+    min-height: 44px;
     background: var(--bg-elevated);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
@@ -851,7 +852,8 @@ body {
 }
 
 .rec-source-btn {
-    padding: 6px 12px;
+    padding: 10px 14px;
+    min-height: 44px;
     background: var(--bg-elevated);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
@@ -1326,7 +1328,87 @@ body {
     }
 
     .gps-coords {
-        display: none !important;
+        padding: 10px;
+        font-size: 0.8rem;
+    }
+
+    .video-stage {
+        min-height: 40vh;
+    }
+}
+
+/* Landscape mobile for live view */
+@media (max-width: 768px) and (orientation: landscape) {
+    .live-container {
+        flex-direction: row;
+    }
+
+    .controls-sidebar {
+        width: 240px;
+        max-height: none;
+        border-left: 1px solid var(--border-color);
+        border-top: none;
+    }
+}
+
+/* 480px breakpoint for small phones */
+@media (max-width: 480px) {
+    .top-bar {
+        height: 56px;
+        padding: 0 12px;
+    }
+
+    .page-title h2 {
+        font-size: 1.1rem;
+    }
+
+    .content-area {
+        padding: 12px 10px;
+    }
+
+    .actions .btn {
+        padding: 8px 12px;
+        font-size: 0.8rem;
+    }
+
+    .modal-content {
+        padding: 20px 16px;
+    }
+
+    .otp-input {
+        font-size: 1.5rem;
+        letter-spacing: 10px;
+        padding: 16px;
+    }
+
+    .confirm-dialog-content {
+        padding: 20px 16px;
+    }
+
+    .timeline-controls {
+        flex-wrap: wrap;
+    }
+
+    .timeline-controls > * {
+        flex: 1 1 100%;
+    }
+
+    .rec-source-buttons {
+        flex: 1 1 100%;
+    }
+
+    .rec-source-btn {
+        flex: 1;
+        white-space: normal;
+        justify-content: center;
+    }
+
+    .date-nav {
+        flex: 1 1 100%;
+    }
+
+    .today-btn {
+        display: none;
     }
 }
 
@@ -1839,6 +1921,46 @@ body {
         width: 44px;
         height: 44px;
     }
+
+    .rec-source-btn {
+        min-height: 44px;
+        padding: 10px 14px;
+    }
+
+    .stream-switch-btn {
+        min-height: 44px;
+    }
+
+    .ptz-btn {
+        min-height: 44px;
+    }
+
+    .zoom-btn {
+        min-height: 44px;
+    }
+
+    .today-btn {
+        min-height: 44px;
+    }
+
+    .btn-sm {
+        min-height: 44px;
+    }
+
+    .close-modal {
+        min-height: 44px;
+        min-width: 44px;
+    }
+
+    .close-panel-btn {
+        min-height: 44px;
+        min-width: 44px;
+    }
+
+    .hamburger-btn {
+        min-height: 44px;
+        min-width: 44px;
+    }
 }
 
 /* Landscape mobile */
@@ -2163,4 +2285,157 @@ body {
         flex-direction: column;
         align-items: stretch;
     }
+}
+
+/* ============================================
+   Footer
+   ============================================ */
+
+.app-footer {
+    padding: 12px 20px;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    border-top: 1px solid var(--border-color);
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.app-footer .version {
+    opacity: 0.6;
+}
+
+/* Login page footer */
+.login-footer {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    text-align: center;
+    z-index: 10;
+    white-space: nowrap;
+}
+
+.login-footer .version {
+    opacity: 0.6;
+    margin-left: 8px;
+}
+
+/* ============================================
+   Connection Status CSS Classes
+   ============================================ */
+
+.connection-status.status-connecting {
+    background-color: rgba(59, 130, 246, 0.2);
+    color: #60a5fa;
+}
+
+.connection-status.status-connected {
+    background-color: rgba(16, 185, 129, 0.2);
+    color: #34d399;
+}
+
+.connection-status.status-error {
+    background-color: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+}
+
+.connection-status.status-default {
+    background-color: var(--bg-elevated);
+    color: var(--text-muted);
+}
+
+/* ============================================
+   Focus Ring (Accessibility)
+   ============================================ */
+
+:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+    outline: none;
+}
+
+/* ============================================
+   Toast Notification
+   ============================================ */
+
+.toast-notification {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 14px 28px;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    z-index: 2000;
+    animation: toast-in 0.3s ease;
+    color: white;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    max-width: 90vw;
+    text-align: center;
+}
+
+.toast-notification.toast-error {
+    background: var(--danger-color);
+}
+
+.toast-notification.toast-success {
+    background: var(--success-color);
+}
+
+.toast-notification.toast-warning {
+    background: var(--warning-color);
+    color: #000;
+}
+
+.toast-notification.toast-info {
+    background: var(--primary-color);
+}
+
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+/* ============================================
+   Empty State with Icon
+   ============================================ */
+
+.empty-state-icon {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto 16px;
+    border-radius: 50%;
+    background: var(--primary-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+}
+
+.empty-state h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.empty-state p {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    line-height: 1.6;
 }

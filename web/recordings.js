@@ -4,6 +4,27 @@
  */
 
 const API_BASE = window.location.origin.replace(':8080', ':8000');
+
+// XSS protection helper
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+}
+
+// Toast notification
+function showToast(message, type = 'info') {
+    const existing = document.querySelector('.toast-notification');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = `toast-notification toast-${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 5000);
+}
+
 let currentDeviceId = null;
 let hlsPlayer = null;
 let timelineData = null;
@@ -174,7 +195,7 @@ async function loadDevices() {
         }
 
         deviceSelect.innerHTML = '<option value="">-- 選擇裝置 --</option>' +
-            devices.map(d => `<option value="${d.device_id}" ${d.is_online ? '' : 'disabled'}>${d.device_name || d.device_id} ${d.is_online ? '' : '(離線)'}</option>`).join('');
+            devices.map(d => `<option value="${escapeHtml(d.device_id)}" ${d.is_online ? '' : 'disabled'}>${escapeHtml(d.device_name || d.device_id)} ${d.is_online ? '' : '(離線)'}</option>`).join('');
 
     } catch (error) {
         console.error('Error loading devices:', error);
@@ -197,6 +218,9 @@ async function loadTimeline() {
     currentDeviceId = deviceId;
 
     const timelineTrack = document.getElementById('timelineTrack');
+
+    // Show loading state
+    timelineTrack.style.opacity = '0.5';
 
     try {
         const response = await fetch(`${API_BASE}/api/devices/${deviceId}/recordings/timeline?date=${date}&source=${currentRecordingSource}&token=${token}`);
@@ -221,6 +245,8 @@ async function loadTimeline() {
         console.error('Error loading timeline:', error);
         timelineData = { segments: [] };
         renderTimeline();
+    } finally {
+        timelineTrack.style.opacity = '1';
     }
 }
 
@@ -401,7 +427,7 @@ async function startPlaybackFromTime(startTime) {
             videoPlayer.play().catch(e => console.log('[playback] Autoplay blocked:', e));
         });
     } else {
-        alert('您的瀏覽器不支援 HLS 播放');
+        showToast('您的瀏覽器不支援 HLS 播放', 'error');
         stopPlayback();
     }
 }
@@ -537,6 +563,9 @@ async function loadRecordings() {
         return;
     }
 
+    // Show loading spinner
+    recordingsList.innerHTML = '<div class="loading-indicator"><div class="spinner"></div><p>載入中...</p></div>';
+
     try {
         const startDate = `${date}T00:00:00`;
         const endDate = `${date}T23:59:59`;
@@ -555,19 +584,19 @@ async function loadRecordings() {
             recordingsList.innerHTML = '<div class="empty-state">此日期沒有錄影</div>';
         } else {
             recordingsList.innerHTML = recordings.map(rec => `
-                <div class="recording-card" onclick="playRecording('${rec.filename}', '${rec.start_time}')">
+                <div class="recording-card" onclick="playRecording('${escapeHtml(rec.filename)}', '${escapeHtml(rec.start_time)}')">
                     <div class="recording-thumbnail">
                         <div class="play-icon">播放</div>
                     </div>
                     <div class="recording-info">
-                        <div class="recording-time">${formatDateTime(rec.start_time)}</div>
+                        <div class="recording-time">${escapeHtml(formatDateTime(rec.start_time))}</div>
                         <div class="recording-meta">
-                            <span>${formatSize(rec.file_size_bytes)}</span>
-                            ${rec.duration_seconds ? `<span>${formatDuration(rec.duration_seconds)}</span>` : ''}
+                            <span>${escapeHtml(formatSize(rec.file_size_bytes))}</span>
+                            ${rec.duration_seconds ? `<span>${escapeHtml(formatDuration(rec.duration_seconds))}</span>` : ''}
                         </div>
                     </div>
                     <div class="recording-actions">
-                        <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); downloadRecording('${rec.filename}')">
+                        <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); downloadRecording('${escapeHtml(rec.filename)}')">
                             下載
                         </button>
                     </div>
@@ -577,7 +606,7 @@ async function loadRecordings() {
 
     } catch (error) {
         console.error('Error loading recordings:', error);
-        recordingsList.innerHTML = `<div class="error-state">載入錄影失敗: ${error.message}</div>`;
+        recordingsList.innerHTML = `<div class="error-state">載入錄影失敗: ${escapeHtml(error.message)}</div>`;
     }
 }
 

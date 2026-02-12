@@ -5,6 +5,14 @@
 const API_BASE = window.location.origin.replace(':8080', ':8000');
 let currentDevices = [];
 
+// XSS protection helper
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+}
+
 // Check authentication
 function checkAuth() {
     const token = localStorage.getItem('token');
@@ -53,16 +61,20 @@ async function loadDevices() {
 
         if (devices.length === 0) {
             devicesList.innerHTML = `
-                <div class="empty-state" style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">
-                    <p>尚未配對任何裝置。</p>
+                <div class="empty-state" style="grid-column: 1/-1;">
+                    <div class="empty-state-icon">
+                        <i data-lucide="camera-off" style="width: 36px; height: 36px;"></i>
+                    </div>
+                    <h3>尚未配對任何裝置</h3>
                     <p>點擊「配對新裝置」來新增您的第一台攝影機。</p>
                 </div>
             `;
+            lucide.createIcons();
             return;
         }
 
         devicesList.innerHTML = devices.map(device => `
-            <div class="device-card" onclick="startWatching('${device.device_id}')" style="${!device.is_online ? 'opacity: 0.6; cursor: not-allowed;' : ''}">
+            <div class="device-card" onclick="startWatching('${escapeHtml(device.device_id)}')" style="${!device.is_online ? 'opacity: 0.6; cursor: not-allowed;' : ''}">
                 <div class="device-preview">
                     ${device.is_online ? `
                     <div class="signal-bars">
@@ -73,11 +85,11 @@ async function loadDevices() {
                 </div>
                 <div class="device-info">
                     <div class="device-header">
-                        <span class="device-name">${device.device_name || device.device_id}</span>
+                        <span class="device-name">${escapeHtml(device.device_name || device.device_id)}</span>
                         <div class="device-status ${device.is_online ? 'online' : ''}"></div>
                     </div>
                     <div class="device-meta">
-                        ID: ${device.device_id} • ${device.device_type}
+                        ID: ${escapeHtml(device.device_id)} • ${escapeHtml(device.device_type)}
                     </div>
                 </div>
             </div>
@@ -176,7 +188,7 @@ async function startWatching(deviceId) {
         return;
     }
 
-    document.getElementById('watchingDeviceName').textContent = device.device_name || device.device_id;
+    document.getElementById('watchingDeviceName').textContent = device.device_name || device.device_id; // textContent is XSS-safe
     document.getElementById('watchSection').classList.add('active');
 
     // Initialize WebRTC (see webrtc.js)

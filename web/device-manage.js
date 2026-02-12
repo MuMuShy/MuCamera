@@ -7,6 +7,14 @@
 
     const API_BASE = window.location.origin;
     let token = localStorage.getItem('token');
+
+    // XSS protection helper
+    function escapeHtml(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+    }
     let currentDeviceId = null;
     let refreshTimer = null;
     const REFRESH_INTERVAL = 5000; // 5 seconds
@@ -108,6 +116,8 @@
     // -------- Fetch system info --------
     async function fetchSysinfo() {
         if (!currentDeviceId) return;
+        const content = document.getElementById('sysinfoContent');
+        if (content) content.style.opacity = '0.7';
         try {
             const res = await fetch(`${API_BASE}/api/devices/${currentDeviceId}/sysinfo?token=${token}`);
             if (res.status === 401) {
@@ -123,6 +133,8 @@
             renderSysinfo(data);
         } catch (e) {
             console.error('Failed to fetch sysinfo:', e);
+        } finally {
+            if (content) content.style.opacity = '1';
         }
     }
 
@@ -187,7 +199,7 @@
                 const txTotal = formatBytes(info.tx_bytes);
                 html += `
                     <div class="sysinfo-row">
-                        <span class="sysinfo-row-label">${iface}</span>
+                        <span class="sysinfo-row-label">${escapeHtml(iface)}</span>
                         <span class="sysinfo-row-value" style="font-size: 0.8rem;">&darr;${rxRate} &uarr;${txRate}</span>
                     </div>
                     <div class="sysinfo-row">
@@ -217,7 +229,7 @@
     }
 
     function row(label, value) {
-        return `<div class="sysinfo-row"><span class="sysinfo-row-label">${label}</span><span class="sysinfo-row-value">${value}</span></div>`;
+        return `<div class="sysinfo-row"><span class="sysinfo-row-label">${escapeHtml(label)}</span><span class="sysinfo-row-value">${escapeHtml(value)}</span></div>`;
     }
 
     function setProgressBar(id, pct) {

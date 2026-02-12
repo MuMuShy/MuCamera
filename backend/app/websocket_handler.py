@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from typing import Dict, Optional, Set
 from datetime import datetime
 from fastapi import WebSocket, WebSocketDisconnect
@@ -10,6 +11,8 @@ from app.redis_client import redis_client
 from app.turn_credentials import get_ice_servers
 from app.config import settings
 import uuid
+
+logger = logging.getLogger("mumucam")
 
 
 class ConnectionManager:
@@ -143,7 +146,7 @@ class ConnectionManager:
             try:
                 await websocket.send_json(message)
             except Exception as e:
-                print(f"Error sending to device {device_id}: {e}")
+                logger.error(f"Error sending to device {device_id}: {e}")
 
     async def send_to_viewer(self, user_id: str, message: dict):
         """Send message to a specific viewer"""
@@ -152,7 +155,7 @@ class ConnectionManager:
             try:
                 await websocket.send_json(message)
             except Exception as e:
-                print(f"Error sending to viewer {user_id}: {e}")
+                logger.error(f"Error sending to viewer {user_id}: {e}")
 
     def is_device_online(self, device_id: str) -> bool:
         """Check if device is currently connected"""
@@ -167,10 +170,6 @@ class ConnectionManager:
             })
         else:
             self.viewer_heartbeats[identifier] = datetime.utcnow()
-
-    def is_device_online(self, device_id: str) -> bool:
-        """Check if device is online"""
-        return device_id in self.device_connections
 
     def get_online_devices(self) -> Set[str]:
         """Get all online device IDs"""
@@ -244,7 +243,7 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
             "last_updated",
             datetime.utcnow().isoformat()
         )
-        print(f"Device {device_id} reported {len(streams)} streams")
+        logger.info(f"Device {device_id} reported {len(streams)} streams")
 
     elif msg_type == "proxy_http_resp":
         # HTTP proxy response from device
@@ -257,9 +256,9 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
                 30,  # 30 second TTL
                 payload  # setex will handle JSON encoding
             )
-            print(f"✓ Stored proxy response for rid={rid}, status={status}, device={device_id}")
+            logger.info(f"Stored proxy response for rid={rid}, status={status}, device={device_id}")
         else:
-            print(f"✗ Received proxy_http_resp without rid from device={device_id}")
+            logger.warning(f"Received proxy_http_resp without rid from device={device_id}")
 
     elif msg_type == "ptz_control_resp":
         # PTZ control response from device
@@ -272,9 +271,9 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
                 30,  # 30 second TTL
                 payload
             )
-            print(f"✓ Stored PTZ response for rid={rid}, success={success}, device={device_id}")
+            logger.info(f"Stored PTZ response for rid={rid}, success={success}, device={device_id}")
         else:
-            print(f"✗ Received ptz_control_resp without rid from device={device_id}")
+            logger.warning(f"Received ptz_control_resp without rid from device={device_id}")
 
     elif msg_type == "proxy_playback_resp":
         # Playback API response from device
@@ -289,11 +288,11 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
                 payload
             )
             if error:
-                print(f"✓ Stored playback response for rid={rid}, error={error}, device={device_id}")
+                logger.info(f"Stored playback response for rid={rid}, error={error}, device={device_id}")
             else:
-                print(f"✓ Stored playback response for rid={rid}, status={status}, device={device_id}")
+                logger.info(f"Stored playback response for rid={rid}, status={status}, device={device_id}")
         else:
-            print(f"✗ Received proxy_playback_resp without rid from device={device_id}")
+            logger.warning(f"Received proxy_playback_resp without rid from device={device_id}")
 
     elif msg_type == "system_info":
         # System info from device - store in Redis with TTL
@@ -312,7 +311,7 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
                 30,  # 30 second TTL
                 payload
             )
-            print(f"✓ Stored control response for rid={rid}, device={device_id}")
+            logger.info(f"Stored control response for rid={rid}, device={device_id}")
 
     elif msg_type == "signal_answer":
         # Forward SDP answer to viewer
@@ -466,7 +465,7 @@ async def handle_viewer_message(user_id: str, message: dict, db: AsyncSession):
         # Forward SDP offer to device
         session_id = payload.get("session_id")
         sdp = payload.get("sdp")
-        print(f"Handling signal_offer for session {session_id}")
+        logger.info(f"Handling signal_offer for session {session_id}")
 
         result = await db.execute(
             select(WatchSession).where(WatchSession.session_id == session_id)
@@ -474,7 +473,7 @@ async def handle_viewer_message(user_id: str, message: dict, db: AsyncSession):
         session = result.scalar_one_or_none()
 
         if session:
-            print(f"Session found: {session.session_id}, device_id: {session.device_id}")
+            logger.info(f"Session found: {session.session_id}, device_id: {session.device_id}")
             # Update session status
             session.status = "active"
             await db.commit()
@@ -486,7 +485,7 @@ async def handle_viewer_message(user_id: str, message: dict, db: AsyncSession):
             device = result_device.scalar_one_or_none()
 
             if device:
-                print(f"Forwarding offer to device {device.device_id}")
+                logger.info(f"Forwarding offer to device {device.device_id}")
                 await manager.send_to_device(device.device_id, {
                     "type": "signal_offer",
                     "ts": datetime.utcnow().isoformat(),
@@ -496,9 +495,9 @@ async def handle_viewer_message(user_id: str, message: dict, db: AsyncSession):
                     }
                 })
             else:
-                print(f"Device not found for session {session_id}")
+                logger.warning(f"Device not found for session {session_id}")
         else:
-            print(f"Session not found: {session_id}")
+            logger.warning(f"Session not found: {session_id}")
 
     elif msg_type == "signal_ice":
         # Forward ICE candidate to device

@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>錄影回放 - iHousing 水下直播系統</title>
+    <meta name="description" content="iHousing 水下影音科技 - 水下即時監控暨錄影回放系統">
     <link rel="stylesheet" href="styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- Lucide Icons -->
@@ -55,13 +56,17 @@
                     <span>登出</span>
                 </button>
             </div>
+            <footer class="app-footer">
+                &copy; 2025 iHousing 水下影音科技 版權所有
+                <span class="version">v1.0.0</span>
+            </footer>
         </aside>
 
         <!-- Main Content -->
         <main class="main-content">
             <header class="top-bar">
                 <div class="page-title">
-                    <button id="widthSidebarBtn" class="hamburger-btn">
+                    <button id="widthSidebarBtn" class="hamburger-btn" aria-label="開啟選單">
                         <i data-lucide="menu" style="width: 20px; height: 20px;"></i>
                     </button>
                     <h2>錄影回放</h2>
@@ -102,16 +107,16 @@
                             </button>
                         </div>
                         <div class="date-nav">
-                            <button id="prevDayBtn" class="nav-btn">
+                            <button id="prevDayBtn" class="nav-btn" aria-label="前一天">
                                 <i data-lucide="chevron-left" style="width: 16px; height: 16px;"></i>
                             </button>
                             <input type="date" id="timelineDate" class="date-picker">
-                            <button id="nextDayBtn" class="nav-btn">
+                            <button id="nextDayBtn" class="nav-btn" aria-label="後一天">
                                 <i data-lucide="chevron-right" style="width: 16px; height: 16px;"></i>
                             </button>
                         </div>
                         <button id="todayBtn" class="today-btn">今天</button>
-                        <button id="listToggleBtn" class="list-btn" title="檔案列表">
+                        <button id="listToggleBtn" class="list-btn" title="檔案列表" aria-label="檔案列表">
                             <i data-lucide="list" style="width: 18px; height: 18px;"></i>
                         </button>
                     </div>
@@ -138,7 +143,7 @@
                             <i data-lucide="folder-video" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
                             錄影檔案
                         </span>
-                        <button id="closePanelBtn" class="close-panel-btn">
+                        <button id="closePanelBtn" class="close-panel-btn" aria-label="關閉">
                             <i data-lucide="x" style="width: 16px; height: 16px;"></i>
                         </button>
                     </div>
