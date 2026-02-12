@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系統設定 - iHousing 水下直播系統</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">
+                    <i data-lucide="waves" style="width: 22px; height: 22px;"></i>
+                </div>
+                <h1>水下直播系統</h1>
+            </div>
+
+            <div class="user-profile">
+                <div class="user-avatar">
+                    <span id="username-initial">U</span>
+                </div>
+                <div class="user-details">
+                    <div class="user-name" id="username">載入中...</div>
+                    <div class="user-role">管理員</div>
+                </div>
+            </div>
+
+            <nav class="nav-menu">
+                <a href="index.html" class="nav-item">
+                    <span class="icon"><i data-lucide="layout-grid" style="width: 18px; height: 18px;"></i></span>
+                    <span>裝置列表</span>
+                </a>
+                <a href="recordings.html" class="nav-item">
+                    <span class="icon"><i data-lucide="film" style="width: 18px; height: 18px;"></i></span>
+                    <span>錄影回放</span>
+                </a>
+                <div class="nav-item active">
+                    <span class="icon"><i data-lucide="settings" style="width: 18px; height: 18px;"></i></span>
+                    <span>系統設定</span>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button id="logoutBtn" class="nav-item" style="width: 100%; border: none; background: transparent;">
+                    <span class="icon"><i data-lucide="log-out" style="width: 18px; height: 18px;"></i></span>
+                    <span>登出</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <div class="page-title">
+                    <button id="widthSidebarBtn" class="hamburger-btn">
+                        <i data-lucide="menu" style="width: 20px; height: 20px;"></i>
+                    </button>
+                    <h2>系統設定</h2>
+                </div>
+                <div class="actions sysinfo-toolbar">
+                    <select id="deviceSelect" class="control-select">
+                        <option value="">選擇裝置</option>
+                    </select>
+                    <span id="deviceStatus" class="status-badge">
+                        <span class="dot"></span>
+                        <span id="deviceStatusText">未選擇</span>
+                    </span>
+                    <button id="refreshBtn" class="btn btn-secondary">
+                        <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+                        重新整理
+                    </button>
+                </div>
+            </header>
+
+            <div class="content-area">
+                <!-- No device selected placeholder -->
+                <div id="noDeviceState" class="sysinfo-no-data">
+                    <div class="no-data-icon">
+                        <i data-lucide="monitor" style="width: 36px; height: 36px;"></i>
+                    </div>
+                    <p>請選擇裝置以查看系統資訊</p>
+                </div>
+
+                <!-- System Info Content (hidden until device selected) -->
+                <div id="sysinfoContent" style="display: none;">
+                    <!-- Info Cards Grid -->
+                    <div class="sysinfo-grid">
+                        <!-- CPU Card -->
+                        <div class="sysinfo-card" id="cpuCard">
+                            <div class="sysinfo-card-header">
+                                <div class="sysinfo-card-title">
+                                    <div class="card-icon">
+                                        <i data-lucide="cpu" style="width: 16px; height: 16px;"></i>
+                                    </div>
+                                    CPU
+                                </div>
+                            </div>
+                            <div class="sysinfo-card-value" id="cpuUsage">--%</div>
+                            <div class="sysinfo-card-sub" id="cpuCores"></div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar">
+                                    <div class="progress-bar-fill" id="cpuBar" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div class="sysinfo-rows" style="margin-top: 12px;">
+                                <div class="sysinfo-row">
+                                    <span class="sysinfo-row-label">負載 (1m)</span>
+                                    <span class="sysinfo-row-value" id="cpuLoad1">--</span>
+                                </div>
+                                <div class="sysinfo-row">
+                                    <span class="sysinfo-row-label">負載 (5m)</span>
+                                    <span class="sysinfo-row-value" id="cpuLoad5">--</span>
+                                </div>
+                                <div class="sysinfo-row">
+                                    <span class="sysinfo-row-label">負載 (15m)</span>
+                                    <span class="sysinfo-row-value" id="cpuLoad15">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Memory Card -->
+                        <div class="sysinfo-card" id="memCard">
+                            <div class="sysinfo-card-header">
+                                <div class="sysinfo-card-title">
+                                    <div class="card-icon">
+                                        <i data-lucide="memory-stick" style="width: 16px; height: 16px;"></i>
+                                    </div>
+                                    記憶體
+                                </div>
+                            </div>
+                            <div class="sysinfo-card-value" id="memUsage">--%</div>
+                            <div class="sysinfo-card-sub" id="memDetail"></div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar">
+                                    <div class="progress-bar-fill" id="memBar" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Disk Card -->
+                        <div class="sysinfo-card" id="diskCard">
+                            <div class="sysinfo-card-header">
+                                <div class="sysinfo-card-title">
+                                    <div class="card-icon">
+                                        <i data-lucide="hard-drive" style="width: 16px; height: 16px;"></i>
+                                    </div>
+                                    磁碟
+                                </div>
+                            </div>
+                            <div class="sysinfo-card-value" id="diskUsage">--%</div>
+                            <div class="sysinfo-card-sub" id="diskDetail"></div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar">
+                                    <div class="progress-bar-fill" id="diskBar" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Network Card -->
+                        <div class="sysinfo-card" id="netCard">
+                            <div class="sysinfo-card-header">
+                                <div class="sysinfo-card-title">
+                                    <div class="card-icon">
+                                        <i data-lucide="wifi" style="width: 16px; height: 16px;"></i>
+                                    </div>
+                                    網路
+                                </div>
+                            </div>
+                            <div class="sysinfo-rows" id="netInterfaces">
+                                <div class="sysinfo-row">
+                                    <span class="sysinfo-row-label">等待資料...</span>
+                                    <span class="sysinfo-row-value">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- System Info Card -->
+                        <div class="sysinfo-card" id="sysCard">
+                            <div class="sysinfo-card-header">
+                                <div class="sysinfo-card-title">
+                                    <div class="card-icon">
+                                        <i data-lucide="server" style="width: 16px; height: 16px;"></i>
+                                    </div>
+                                    系統資訊
+                                </div>
+                            </div>
+                            <div class="sysinfo-rows" id="sysRows">
+                                <div class="sysinfo-row">
+                                    <span class="sysinfo-row-label">等待資料...</span>
+                                    <span class="sysinfo-row-value">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- go2rtc Card -->
+                        <div class="sysinfo-card" id="go2rtcCard">
+                            <div class="sysinfo-card-header">
+                                <div class="sysinfo-card-title">
+                                    <div class="card-icon">
+                                        <i data-lucide="video" style="width: 16px; height: 16px;"></i>
+                                    </div>
+                                    go2rtc 狀態
+                                </div>
+                            </div>
+                            <div class="sysinfo-rows">
+                                <div class="sysinfo-row">
+                                    <span class="sysinfo-row-label">服務狀態</span>
+                                    <span class="sysinfo-row-value" id="go2rtcStatus">--</span>
+                                </div>
+                                <div class="sysinfo-row">
+                                    <span class="sysinfo-row-label">溫度</span>
+                                    <span class="sysinfo-row-value" id="cpuTemp">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Control Section -->
+                    <div class="control-section">
+                        <div class="control-section-title">
+                            <i data-lucide="terminal" style="width: 16px; height: 16px;"></i>
+                            遠端控制
+                        </div>
+                        <div class="control-buttons">
+                            <button class="btn btn-secondary" id="btnRestartAgent" data-command="restart_agent">
+                                <i data-lucide="rotate-cw" style="width: 16px; height: 16px;"></i>
+                                重啟 Agent
+                            </button>
+                            <button class="btn btn-secondary" id="btnRestartGo2rtc" data-command="restart_go2rtc">
+                                <i data-lucide="video" style="width: 16px; height: 16px;"></i>
+                                重啟 go2rtc
+                            </button>
+                            <button class="btn btn-secondary" id="btnRestartStream" data-command="restart_stream">
+                                <i data-lucide="radio" style="width: 16px; height: 16px;"></i>
+                                重啟串流
+                            </button>
+                            <button class="btn btn-danger" id="btnReboot" data-command="reboot">
+                                <i data-lucide="power" style="width: 16px; height: 16px;"></i>
+                                重新開機
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar Overlay -->
+            <div id="sidebarOverlay" class="sidebar-overlay"></div>
+        </main>
+
+        <!-- Confirm Dialog -->
+        <div id="confirmDialog" class="confirm-dialog">
+            <div class="confirm-dialog-content">
+                <div class="confirm-dialog-icon">
+                    <i data-lucide="alert-triangle" style="width: 28px; height: 28px;"></i>
+                </div>
+                <div class="confirm-dialog-title" id="confirmTitle">確認操作</div>
+                <div class="confirm-dialog-msg" id="confirmMsg">確定要執行此操作？</div>
+                <div class="confirm-dialog-actions">
+                    <button class="btn btn-secondary" id="confirmCancel">取消</button>
+                    <button class="btn btn-primary" id="confirmOk">確認</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="device-manage.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>

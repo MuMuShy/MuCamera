@@ -27,6 +27,7 @@ from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from onvif_controller import ONVIFController, ONVIFConfig
 from gps_reader import GPSManager, create_gps_manager
+from system_monitor import SystemMonitor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -85,6 +86,7 @@ class Go2RTCProxyAgent:
         self.heartbeat_interval = 15
         self.capabilities_interval = 30
         self.go2rtc_check_interval = 10
+        self.sysinfo_interval = 10
 
         self.http_url = self._get_http_url(backend_url)
 
@@ -93,12 +95,16 @@ class Go2RTCProxyAgent:
         self._heartbeat_task: Optional[asyncio.Task] = None
         self._capabilities_task: Optional[asyncio.Task] = None
         self._go2rtc_health_task: Optional[asyncio.Task] = None
+        self._sysinfo_task: Optional[asyncio.Task] = None
         self._message_queue: asyncio.Queue = asyncio.Queue()
         self._pending_proxy_tasks: Dict[str, asyncio.Task] = {}
 
         self._go2rtc_healthy = False
         self._last_go2rtc_check = None
         self._ws_send_lock = asyncio.Lock()
+
+        # System monitor
+        self._system_monitor = SystemMonitor()
 
         logger.info(f"[go2rtc] Agent initialized: {device_id}, go2rtc: {go2rtc_http}")
 
@@ -298,18 +304,21 @@ class Go2RTCProxyAgent:
 
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         self._capabilities_task = asyncio.create_task(self._capabilities_loop())
+        self._sysinfo_task = asyncio.create_task(self._sysinfo_loop())
 
         self._tasks.add(self._heartbeat_task)
         self._tasks.add(self._capabilities_task)
+        self._tasks.add(self._sysinfo_task)
 
     def _stop_background_tasks(self):
         """Stop all background tasks"""
-        for task in [self._heartbeat_task, self._capabilities_task]:
+        for task in [self._heartbeat_task, self._capabilities_task, self._sysinfo_task]:
             if task and not task.done():
                 task.cancel()
 
         self._heartbeat_task = None
         self._capabilities_task = None
+        self._sysinfo_task = None
 
     async def message_loop(self):
         """Main message handling loop with error recovery"""
@@ -349,6 +358,9 @@ class Go2RTCProxyAgent:
 
         elif msg_type == "ptz_control":
             asyncio.create_task(self._handle_ptz_control(payload))
+
+        elif msg_type == "control_command":
+            asyncio.create_task(self._handle_control_command(payload))
 
         elif msg_type == "proxy_playback":
             # Proxy to local playback API (port 8090)
@@ -435,6 +447,93 @@ class Go2RTCProxyAgent:
                 **result
             }
         })
+
+    async def _handle_control_command(self, payload: dict):
+        """Handle control commands from backend"""
+        rid = payload.get("rid")
+        command = payload.get("command")
+        logger.info(f"[control] Received command: {command} (rid={rid})")
+
+        try:
+            if command == "restart_go2rtc":
+                # Send response first, then restart
+                await self._send_control_response(rid, True, "Restarting go2rtc...")
+                await asyncio.sleep(0.5)
+                proc = await asyncio.create_subprocess_exec(
+                    "sudo", "systemctl", "restart", "go2rtc",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await proc.wait()
+                logger.info(f"[control] go2rtc restart exit code: {proc.returncode}")
+
+            elif command == "restart_stream":
+                await self._send_control_response(rid, True, "Restarting stream...")
+                await asyncio.sleep(0.5)
+                proc = await asyncio.create_subprocess_exec(
+                    "sudo", "systemctl", "restart", "go2rtc",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await proc.wait()
+                logger.info(f"[control] stream restart exit code: {proc.returncode}")
+
+            elif command == "restart_agent":
+                # Send response first, then exit (systemd will restart)
+                await self._send_control_response(rid, True, "Restarting agent...")
+                await asyncio.sleep(1)
+                logger.info("[control] Agent exiting for restart...")
+                os._exit(0)
+
+            elif command == "reboot":
+                # Send response first, then reboot
+                await self._send_control_response(rid, True, "Rebooting device...")
+                await asyncio.sleep(1)
+                logger.info("[control] Rebooting device...")
+                proc = await asyncio.create_subprocess_exec(
+                    "sudo", "reboot",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await proc.wait()
+
+            else:
+                await self._send_control_response(rid, False, f"Unknown command: {command}")
+
+        except Exception as e:
+            logger.error(f"[control] Error executing {command}: {e}", exc_info=True)
+            await self._send_control_response(rid, False, str(e))
+
+    async def _send_control_response(self, rid: str, success: bool, message: str):
+        """Send control command response"""
+        await self._send_message_safe({
+            "type": "control_resp",
+            "ts": datetime.utcnow().isoformat(),
+            "payload": {
+                "rid": rid,
+                "success": success,
+                "message": message
+            }
+        })
+
+    async def _sysinfo_loop(self):
+        """Send system info periodically"""
+        try:
+            while self.running and self.state == ConnectionState.CONNECTED:
+                try:
+                    sysinfo = self._system_monitor.collect()
+                    sysinfo["go2rtc_healthy"] = self._go2rtc_healthy
+                    await self._send_message_safe({
+                        "type": "system_info",
+                        "ts": datetime.utcnow().isoformat(),
+                        "payload": sysinfo
+                    })
+                    logger.debug("[sysmon] System info sent")
+                except Exception as e:
+                    logger.error(f"[sysmon] Error collecting/sending sysinfo: {e}")
+                await asyncio.sleep(self.sysinfo_interval)
+        except asyncio.CancelledError:
+            logger.debug("[sysmon] Sysinfo loop cancelled")
 
     async def _handle_proxy_http(self, payload: dict):
         """Handle HTTP proxy request to go2rtc"""

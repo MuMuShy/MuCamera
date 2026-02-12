@@ -1789,3 +1789,308 @@ body {
         font-size: 1rem;
     }
 }
+
+/* ============================================
+   Device Management / System Info Page
+   ============================================ */
+
+.sysinfo-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.sysinfo-toolbar .control-select {
+    min-width: 200px;
+}
+
+.sysinfo-toolbar .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+}
+
+.sysinfo-toolbar .status-badge.online {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.3);
+    color: var(--success-color);
+}
+
+.sysinfo-toolbar .status-badge .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+}
+
+.sysinfo-toolbar .status-badge.online .dot {
+    background: var(--success-color);
+    box-shadow: 0 0 8px var(--success-glow);
+}
+
+.sysinfo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 20px;
+    margin-bottom: 32px;
+}
+
+.sysinfo-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    transition: var(--transition-normal);
+}
+
+.sysinfo-card:hover {
+    border-color: var(--border-hover);
+}
+
+.sysinfo-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+}
+
+.sysinfo-card-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+}
+
+.sysinfo-card-title .card-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary-subtle);
+    color: var(--primary-color);
+}
+
+.sysinfo-card-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--text-main);
+    margin-bottom: 4px;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+}
+
+.sysinfo-card-sub {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+/* Progress Bar */
+.progress-bar-container {
+    margin-top: 14px;
+}
+
+.progress-bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.progress-bar {
+    height: 8px;
+    background: var(--bg-dark);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--primary-color), var(--accent-cyan));
+    transition: width 0.5s ease;
+}
+
+.progress-bar-fill.warning {
+    background: linear-gradient(90deg, var(--warning-color), #f97316);
+}
+
+.progress-bar-fill.danger {
+    background: linear-gradient(90deg, var(--danger-color), #dc2626);
+}
+
+/* Info Rows inside cards */
+.sysinfo-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sysinfo-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.85rem;
+}
+
+.sysinfo-row:last-child {
+    border-bottom: none;
+}
+
+.sysinfo-row-label {
+    color: var(--text-muted);
+}
+
+.sysinfo-row-value {
+    color: var(--text-main);
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    font-weight: 500;
+}
+
+/* Control Section */
+.control-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+}
+
+.control-section-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+}
+
+.control-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.control-buttons .btn {
+    min-width: 160px;
+}
+
+/* Confirm Dialog */
+.confirm-dialog {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.confirm-dialog.active {
+    display: flex;
+}
+
+.confirm-dialog-content {
+    background: var(--bg-card);
+    max-width: 400px;
+    width: 100%;
+    padding: 32px;
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+    text-align: center;
+    animation: modal-appear 0.3s ease;
+}
+
+.confirm-dialog-icon {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 16px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warning-color);
+}
+
+.confirm-dialog-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.confirm-dialog-msg {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    margin-bottom: 24px;
+    line-height: 1.6;
+}
+
+.confirm-dialog-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.confirm-dialog-actions .btn {
+    min-width: 110px;
+}
+
+/* Sysinfo no-data state */
+.sysinfo-no-data {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-muted);
+}
+
+.sysinfo-no-data .no-data-icon {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto 20px;
+    border-radius: 50%;
+    background: var(--primary-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary-color);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .sysinfo-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .control-buttons {
+        flex-direction: column;
+    }
+
+    .control-buttons .btn {
+        width: 100%;
+    }
+
+    .sysinfo-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}

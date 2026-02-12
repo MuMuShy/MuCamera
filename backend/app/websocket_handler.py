@@ -295,6 +295,25 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
         else:
             print(f"✗ Received proxy_playback_resp without rid from device={device_id}")
 
+    elif msg_type == "system_info":
+        # System info from device - store in Redis with TTL
+        await redis_client.setex(
+            f"device:sysinfo:{device_id}",
+            30,  # 30 second TTL
+            payload
+        )
+
+    elif msg_type == "control_resp":
+        # Control command response from device
+        rid = payload.get("rid")
+        if rid:
+            await redis_client.setex(
+                f"control:response:{rid}",
+                30,  # 30 second TTL
+                payload
+            )
+            print(f"✓ Stored control response for rid={rid}, device={device_id}")
+
     elif msg_type == "signal_answer":
         # Forward SDP answer to viewer
         session_id = payload.get("session_id")

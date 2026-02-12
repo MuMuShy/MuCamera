@@ -540,6 +540,76 @@ async def get_device_gps(
     }
 
 
+@app.get("/api/devices/{device_id}/sysinfo")
+async def get_device_sysinfo(
+    device_id: str,
+    token: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get device system information from Redis"""
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    sysinfo = await redis_client.get(f"device:sysinfo:{device_id}")
+    if sysinfo:
+        return sysinfo
+
+    return {"error": "No system info available", "online": manager.is_device_online(device_id)}
+
+
+class ControlCommandRequest(BaseModel):
+    command: str  # restart_agent, restart_go2rtc, reboot, restart_stream
+
+
+@app.post("/api/devices/{device_id}/control")
+async def send_control_command(
+    device_id: str,
+    request_body: ControlCommandRequest,
+    token: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Send control command to device"""
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    if not manager.is_device_online(device_id):
+        raise HTTPException(status_code=503, detail="Device offline")
+
+    allowed_commands = {"restart_agent", "restart_go2rtc", "reboot", "restart_stream"}
+    if request_body.command not in allowed_commands:
+        raise HTTPException(status_code=400, detail=f"Invalid command. Allowed: {', '.join(allowed_commands)}")
+
+    rid = str(uuid.uuid4())
+
+    control_message = {
+        "type": "control_command",
+        "ts": datetime.utcnow().isoformat(),
+        "payload": {
+            "rid": rid,
+            "command": request_body.command
+        }
+    }
+
+    print(f"[control] Sending {request_body.command} to device {device_id}, rid={rid}")
+    await manager.send_to_device(device_id, control_message)
+
+    # Wait for response
+    for attempt in range(20):  # 10 seconds
+        resp_data = await redis_client.get(f"control:response:{rid}")
+        if resp_data:
+            await redis_client.delete(f"control:response:{rid}")
+            return resp_data
+        await asyncio.sleep(0.5)
+
+    # For restart_agent and reboot, timeout is expected since agent disconnects
+    if request_body.command in ("restart_agent", "reboot"):
+        return {"success": True, "message": f"Command '{request_body.command}' sent (device will disconnect)"}
+
+    return {"success": True, "message": "Command sent (no ack)"}
+
+
 @app.api_route("/api/devices/{device_id}/proxy/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_to_device(
     device_id: str,
