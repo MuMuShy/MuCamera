@@ -38,6 +38,37 @@ if (typeof window.MuMuCamera === 'undefined') {
     let currentDeviceId = null;
     let isStreamingActive = false;
     let gpsPollingInterval = null;
+    let latencyMonitorId = null;
+
+    /**
+     * Low-latency playback monitor
+     * Detects when video buffer grows too large and skips ahead to live edge
+     */
+    function startLatencyMonitor(video) {
+        if (latencyMonitorId) cancelAnimationFrame(latencyMonitorId);
+
+        const check = () => {
+            if (!isStreamingActive) return;
+            if (video.buffered.length > 0) {
+                const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+                const lag = bufferedEnd - video.currentTime;
+                // If more than 0.5s behind live edge, skip ahead
+                if (lag > 0.5) {
+                    console.log(`[latency] Skipping ahead: ${lag.toFixed(2)}s behind`);
+                    video.currentTime = bufferedEnd;
+                }
+            }
+            latencyMonitorId = requestAnimationFrame(check);
+        };
+        latencyMonitorId = requestAnimationFrame(check);
+    }
+
+    function stopLatencyMonitor() {
+        if (latencyMonitorId) {
+            cancelAnimationFrame(latencyMonitorId);
+            latencyMonitorId = null;
+        }
+    }
 
     /**
      * Initialize WebRTC connection using go2rtc
@@ -113,8 +144,11 @@ if (typeof window.MuMuCamera === 'undefined') {
             // Create RTCPeerConnection
             pc = new RTCPeerConnection({ iceServers });
 
-            // Set up video element
+            // Set up video element with low-latency settings
             const videoElement = document.getElementById('remoteVideo');
+            videoElement.autoplay = true;
+            videoElement.playsInline = true;
+            videoElement.muted = true;
 
             pc.ontrack = (event) => {
                 console.log('Received track:', event.track.kind);
@@ -122,6 +156,9 @@ if (typeof window.MuMuCamera === 'undefined') {
                     videoElement.srcObject = event.streams[0];
                     updateConnectionStatus('已連線');
                     isStreamingActive = true;
+
+                    // Start low-latency playback monitor
+                    startLatencyMonitor(videoElement);
                 }
             };
 
@@ -142,16 +179,16 @@ if (typeof window.MuMuCamera === 'undefined') {
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
 
-            // Wait for ICE candidates - send as soon as we have a relay candidate
-            // go2rtc uses HTTP POST (no trickle ICE), needs browser's candidates
-            // for TURN permissions. Relay candidate is the key one for cross-NAT.
+            // Wait for ICE candidates before sending offer
+            // go2rtc needs browser's candidates (no trickle ICE in HTTP POST mode)
+            // Send as soon as we have srflx (fast) or relay (needed for strict NAT)
             console.log('Gathering ICE candidates...');
             await new Promise((resolve) => {
                 if (pc.iceGatheringState === 'complete') {
                     resolve();
                     return;
                 }
-                let hasRelay = false;
+                let hasSrflx = false;
                 let resolved = false;
                 const done = () => {
                     if (resolved) return;
@@ -161,12 +198,11 @@ if (typeof window.MuMuCamera === 'undefined') {
                     resolve();
                 };
                 const onCandidate = (e) => {
-                    if (e.candidate) {
-                        console.log('Gathered:', e.candidate.type, e.candidate.address);
-                        if (e.candidate.type === 'relay' && !hasRelay) {
-                            hasRelay = true;
-                            // Got relay - wait 500ms more for extra candidates then send
-                            setTimeout(done, 500);
+                    if (e.candidate && !hasSrflx) {
+                        if (e.candidate.type === 'srflx' || e.candidate.type === 'relay') {
+                            hasSrflx = true;
+                            // Got public candidate - short delay for a few more, then send
+                            setTimeout(done, 200);
                         }
                     }
                 };
@@ -175,7 +211,7 @@ if (typeof window.MuMuCamera === 'undefined') {
                 };
                 pc.addEventListener('icecandidate', onCandidate);
                 pc.addEventListener('icegatheringstatechange', onStateChange);
-                setTimeout(done, 5000); // hard timeout
+                setTimeout(done, 3000); // hard timeout
             });
 
             // Use the full local description which now includes gathered candidates
@@ -372,6 +408,9 @@ if (typeof window.MuMuCamera === 'undefined') {
      */
     function stopStream() {
         isStreamingActive = false;
+
+        // Stop latency monitor
+        stopLatencyMonitor();
 
         // Stop GPS polling
         stopGPSPolling();
