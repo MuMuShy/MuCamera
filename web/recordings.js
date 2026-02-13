@@ -197,6 +197,12 @@ async function loadDevices() {
         deviceSelect.innerHTML = '<option value="">-- 選擇裝置 --</option>' +
             devices.map(d => `<option value="${escapeHtml(d.device_id)}" ${d.is_online ? '' : 'disabled'}>${escapeHtml(d.device_name || d.device_id)} ${d.is_online ? '' : '(離線)'}</option>`).join('');
 
+        // 只有一個裝置時自動選擇
+        if (devices.length === 1 && devices[0].is_online) {
+            deviceSelect.value = devices[0].device_id;
+            loadTimeline();
+        }
+
     } catch (error) {
         console.error('Error loading devices:', error);
         deviceSelect.innerHTML = '<option value="">載入失敗</option>';

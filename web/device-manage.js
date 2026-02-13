@@ -80,11 +80,17 @@
                 deviceSelect.appendChild(opt);
             });
 
-            // Restore previous selection
-            const saved = localStorage.getItem('manage_device_id');
-            if (saved && deviceSelect.querySelector(`option[value="${saved}"]`)) {
-                deviceSelect.value = saved;
-                selectDevice(saved);
+            // 只有一個裝置時自動選擇，否則恢復上次選擇
+            if (devices.length === 1) {
+                deviceSelect.value = devices[0].device_id;
+                localStorage.setItem('manage_device_id', devices[0].device_id);
+                selectDevice(devices[0].device_id);
+            } else {
+                const saved = localStorage.getItem('manage_device_id');
+                if (saved && deviceSelect.querySelector(`option[value="${saved}"]`)) {
+                    deviceSelect.value = saved;
+                    selectDevice(saved);
+                }
             }
         } catch (e) {
             console.error('Failed to load devices:', e);

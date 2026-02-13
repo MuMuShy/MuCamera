@@ -73,6 +73,11 @@ async function loadDevices() {
             return;
         }
 
+        // 只有一個線上裝置時自動開始觀看
+        if (devices.length === 1 && devices[0].is_online) {
+            startWatching(devices[0].device_id);
+        }
+
         devicesList.innerHTML = devices.map(device => `
             <div class="device-card" onclick="startWatching('${escapeHtml(device.device_id)}')" style="${!device.is_online ? 'opacity: 0.6; cursor: not-allowed;' : ''}">
                 <div class="device-preview">
