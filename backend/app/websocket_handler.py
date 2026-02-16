@@ -29,7 +29,15 @@ class ConnectionManager:
 
     async def connect_device(self, device_id: str, websocket: WebSocket, db: AsyncSession):
         """Connect a device"""
-        #await websocket.accept()
+        # Close stale connection if exists (prevents orphaned connections)
+        old_ws = self.device_connections.get(device_id)
+        if old_ws is not None and old_ws is not websocket:
+            logger.warning(f"Device {device_id} already connected, closing old connection")
+            try:
+                await old_ws.close(code=1012, reason="Replaced by new connection")
+            except Exception:
+                pass
+
         self.device_connections[device_id] = websocket
         self.device_heartbeats[device_id] = datetime.utcnow()
 
@@ -47,8 +55,14 @@ class ConnectionManager:
             "last_heartbeat": datetime.utcnow().isoformat()
         })
 
-    async def disconnect_device(self, device_id: str, db: AsyncSession):
-        """Disconnect a device"""
+    async def disconnect_device(self, device_id: str, websocket: WebSocket, db: AsyncSession):
+        """Disconnect a device (only if the websocket matches the active connection)"""
+        current_ws = self.device_connections.get(device_id)
+        if current_ws is not None and current_ws is not websocket:
+            # A newer connection has replaced this one; don't touch it
+            logger.info(f"Device {device_id} disconnect skipped: connection already replaced")
+            return
+
         if device_id in self.device_connections:
             del self.device_connections[device_id]
         if device_id in self.device_heartbeats:

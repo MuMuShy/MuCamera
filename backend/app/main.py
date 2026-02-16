@@ -410,11 +410,11 @@ async def device_websocket(websocket: WebSocket, db: AsyncSession = Depends(get_
 
     except WebSocketDisconnect:
         if device_id:
-            await manager.disconnect_device(device_id, db)
+            await manager.disconnect_device(device_id, websocket, db)
     except Exception as e:
         logger.error(f"Device WebSocket error: {e}")
         if device_id:
-            await manager.disconnect_device(device_id, db)
+            await manager.disconnect_device(device_id, websocket, db)
 
 
 @app.websocket("/ws/viewer")
