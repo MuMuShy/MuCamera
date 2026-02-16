@@ -123,13 +123,23 @@
                                 串流切換
                             </h3>
                             <div class="stream-switch-buttons">
-                                <button class="stream-switch-btn active" data-src="cam" onclick="switchStream('cam')">
+                                <button class="stream-switch-btn active" data-cam="cam" onclick="switchCamera('cam')">
                                     <i data-lucide="camera" style="width: 14px; height: 14px;"></i>
                                     攝影機 1
                                 </button>
-                                <button class="stream-switch-btn" data-src="cam2" onclick="switchStream('cam2')">
+                                <button class="stream-switch-btn" data-cam="cam2" onclick="switchCamera('cam2')">
                                     <i data-lucide="camera" style="width: 14px; height: 14px;"></i>
                                     攝影機 2
+                                </button>
+                            </div>
+                            <div class="stream-switch-buttons" style="margin-top: 8px;">
+                                <button class="stream-switch-btn active" id="btnSD" onclick="toggleQuality('sd')">
+                                    <i data-lucide="gauge" style="width: 14px; height: 14px;"></i>
+                                    流暢 SD
+                                </button>
+                                <button class="stream-switch-btn" id="btnHD" onclick="toggleQuality('hd')">
+                                    <i data-lucide="sparkles" style="width: 14px; height: 14px;"></i>
+                                    高清 HD
                                 </button>
                             </div>
                         </div>

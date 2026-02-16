@@ -50,7 +50,9 @@ if (typeof window.MuMuCamera === 'undefined') {
     let ws = null;
     let pc = null;
     let currentDeviceId = null;
-    let currentStreamSrc = 'cam';
+    let currentCamera = 'cam';       // 'cam' or 'cam2'
+    let currentQuality = 'sd';       // 'sd' (sub-stream) or 'hd' (main stream)
+    let currentStreamSrc = 'cam_sub'; // derived: cam_sub, cam, cam2_sub, cam2
     let isStreamingActive = false;
     let gpsPollingInterval = null;
     let latencyMonitorId = null;
@@ -592,21 +594,18 @@ if (typeof window.MuMuCamera === 'undefined') {
 
 
     /**
-     * Switch stream source (e.g. 'cam' or 'cam2')
+     * Derive stream source from camera + quality
      */
-    window.switchStream = async function (src) {
-        if (src === currentStreamSrc) return;
-        currentStreamSrc = src;
-        console.log(`[stream] Switching to: ${src}`);
+    function getStreamSrc(camera, quality) {
+        return quality === 'sd' ? camera + '_sub' : camera;
+    }
 
-        // Update button active state
-        document.querySelectorAll('.stream-switch-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.src === src);
-        });
-
+    /**
+     * Internal: reconnect stream with current settings
+     */
+    async function applyStreamSwitch() {
         if (!currentDeviceId || !isStreamingActive) return;
 
-        // Reconnect with new stream source
         stopLatencyMonitor();
         stopHealthCheck();
         if (pc) {
@@ -623,7 +622,43 @@ if (typeof window.MuMuCamera === 'undefined') {
             isReconnecting = false;
             updateConnectionStatus('切換失敗');
         }
+    }
+
+    /**
+     * Switch camera (cam / cam2)
+     */
+    window.switchCamera = async function (cam) {
+        if (cam === currentCamera) return;
+        currentCamera = cam;
+        currentStreamSrc = getStreamSrc(currentCamera, currentQuality);
+        console.log(`[stream] Camera → ${cam}, stream: ${currentStreamSrc}`);
+
+        // Update camera button active state
+        document.querySelectorAll('.stream-switch-btn[data-cam]').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.cam === cam);
+        });
+
+        await applyStreamSwitch();
     };
+
+    /**
+     * Toggle quality (sd / hd)
+     */
+    window.toggleQuality = async function (quality) {
+        if (quality === currentQuality) return;
+        currentQuality = quality;
+        currentStreamSrc = getStreamSrc(currentCamera, currentQuality);
+        console.log(`[stream] Quality → ${quality}, stream: ${currentStreamSrc}`);
+
+        // Update quality button active state
+        document.getElementById('btnSD').classList.toggle('active', quality === 'sd');
+        document.getElementById('btnHD').classList.toggle('active', quality === 'hd');
+
+        await applyStreamSwitch();
+    };
+
+    // Keep backward compatibility
+    window.switchStream = window.switchCamera;
 
     /**
      * Cleanup on page unload
@@ -643,7 +678,7 @@ if (typeof window.MuMuCamera === 'undefined') {
 
         const payload = {
             action: action,
-            source: currentStreamSrc,
+            source: currentCamera,
             ...params
         };
 
