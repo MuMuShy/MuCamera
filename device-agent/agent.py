@@ -104,6 +104,8 @@ class Go2RTCProxyAgent:
         self._go2rtc_healthy = False
         self._last_go2rtc_check = None
         self._ws_send_lock = asyncio.Lock()
+        self._time_sync_task: Optional[asyncio.Task] = None
+        self.time_sync_interval = 3600  # 每小時同步一次
 
         # System monitor
         self._system_monitor = SystemMonitor()
@@ -705,6 +707,27 @@ class Go2RTCProxyAgent:
                 }
             })
 
+    async def _time_sync_loop(self):
+        """定期將本機時間同步到所有 ONVIF 攝影機"""
+        try:
+            # 啟動後先等 30 秒再做第一次同步（等待 ONVIF 初始化）
+            await asyncio.sleep(30)
+            while self.running:
+                for name, controller in self.onvif_controllers.items():
+                    try:
+                        result = await controller.sync_time()
+                        if result.get("success"):
+                            logger.info(f"[time-sync] {name} 時間同步成功")
+                        else:
+                            logger.warning(f"[time-sync] {name} 時間同步失敗：{result.get('error')}")
+                    except Exception as e:
+                        logger.error(f"[time-sync] {name} 時間同步異常：{e}")
+                await asyncio.sleep(self.time_sync_interval)
+        except asyncio.CancelledError:
+            logger.debug("[time-sync] 時間同步任務已取消")
+        except Exception as e:
+            logger.error(f"[time-sync] 時間同步迴圈異常：{e}", exc_info=True)
+
     async def _heartbeat_loop(self):
         """Send periodic heartbeats with optional GPS data"""
         try:
@@ -826,6 +849,11 @@ class Go2RTCProxyAgent:
 
         self._go2rtc_health_task = asyncio.create_task(self.go2rtc_health_monitor())
 
+        # 啟動攝影機時間同步（如有 ONVIF controller）
+        if self.onvif_controllers:
+            self._time_sync_task = asyncio.create_task(self._time_sync_loop())
+            logger.info(f"[time-sync] 已啟動，每 {self.time_sync_interval} 秒同步一次")
+
         logger.info("Registering device with backend...")
         registration_success = await self.register_device()
 
@@ -853,6 +881,13 @@ class Go2RTCProxyAgent:
             self._go2rtc_health_task.cancel()
             try:
                 await self._go2rtc_health_task
+            except asyncio.CancelledError:
+                pass
+
+        if self._time_sync_task and not self._time_sync_task.done():
+            self._time_sync_task.cancel()
+            try:
+                await self._time_sync_task
             except asyncio.CancelledError:
                 pass
 

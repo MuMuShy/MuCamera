@@ -182,10 +182,24 @@ class RecorderManager:
             logger.error(f"[recorder] 啟動 ffmpeg 失敗：{e}")
             return False
 
+    def _get_latest_output_mtime(self) -> Optional[float]:
+        """取得輸出目錄中最新 .ts 檔案的修改時間"""
+        try:
+            ts_files = list(self.output_dir.glob("*.ts"))
+            if not ts_files:
+                return None
+            latest = max(ts_files, key=lambda f: f.stat().st_mtime)
+            return latest.stat().st_mtime
+        except Exception:
+            return None
+
     def _monitor_loop(self):
-        """監控 ffmpeg 程序並在失敗時重啟"""
+        """監控 ffmpeg 程序並在失敗或停滯時重啟"""
         logger.info("[recorder] 監控執行緒已啟動")
         restart_delay = 5  # 重啟間隔秒數
+        stall_timeout = self.segment_seconds + 60  # 停滯判定門檻
+        last_output_check = time.time()
+        last_known_mtime = self._get_latest_output_mtime()
 
         while not self._stop_event.is_set():
             # 檢查程序狀態
@@ -216,6 +230,29 @@ class RecorderManager:
                     if not self._stop_event.is_set():
                         logger.info(f"[recorder] {restart_delay} 秒後重啟...")
                         self._restart_count += 1
+                else:
+                    # 程序仍在運行 — 檢查是否停滯（無新檔案輸出）
+                    now = time.time()
+                    if now - last_output_check >= 30:  # 每 30 秒檢查一次
+                        last_output_check = now
+                        current_mtime = self._get_latest_output_mtime()
+
+                        if current_mtime is not None and current_mtime != last_known_mtime:
+                            # 有新檔案產生，更新記錄
+                            last_known_mtime = current_mtime
+                        elif current_mtime is not None:
+                            # 沒有新檔案，檢查距上次檔案多久
+                            stall_duration = now - current_mtime
+                            if stall_duration > stall_timeout:
+                                self._last_error = f"ffmpeg 停滯 {int(stall_duration)} 秒無新輸出"
+                                logger.error(f"[recorder] ffmpeg 停滯偵測：{int(stall_duration)} 秒無新 .ts 檔案，強制重啟")
+                                try:
+                                    self._process.kill()
+                                    self._process.wait(timeout=5)
+                                except Exception:
+                                    pass
+                                self._process = None
+                                self._restart_count += 1
 
             # 等待後檢查或重啟
             if self._stop_event.wait(timeout=restart_delay):
@@ -225,7 +262,10 @@ class RecorderManager:
             with self._lock:
                 if self._process is None and not self._stop_event.is_set():
                     logger.info("[recorder] 嘗試重啟...")
-                    self._start_ffmpeg()
+                    if self._start_ffmpeg():
+                        # 重啟後重置停滯偵測
+                        last_output_check = time.time()
+                        last_known_mtime = self._get_latest_output_mtime()
 
         logger.info("[recorder] 監控執行緒已停止")
 

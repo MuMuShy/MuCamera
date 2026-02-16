@@ -423,3 +423,50 @@ class ONVIFController:
         }
 
         return {"success": True, "capabilities": caps}
+
+    async def sync_time(self) -> Dict[str, Any]:
+        """
+        Sync camera time with local system (UTC).
+        Uses ONVIF SetSystemDateAndTime to push current time to camera.
+        """
+        if not await self.initialize():
+            return {"success": False, "error": "ONVIF not initialized"}
+
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, self._sync_time_sync)
+            return result
+        except Exception as e:
+            logger.error(f"[onvif] Time sync error: {e}")
+            return {"success": False, "error": str(e)}
+
+    def _sync_time_sync(self) -> Dict[str, Any]:
+        """Synchronous time sync operation"""
+        from datetime import datetime, timezone
+
+        try:
+            now = datetime.now(timezone.utc)
+
+            self._camera.devicemgmt.SetSystemDateAndTime({
+                "DateTimeType": "Manual",
+                "DaylightSavings": False,
+                "UTCDateTime": {
+                    "Date": {
+                        "Year": now.year,
+                        "Month": now.month,
+                        "Day": now.day
+                    },
+                    "Time": {
+                        "Hour": now.hour,
+                        "Minute": now.minute,
+                        "Second": now.second
+                    }
+                }
+            })
+
+            logger.info(f"[onvif] Time synced to {now.strftime('%Y-%m-%d %H:%M:%S')} UTC → {self.config.ip}")
+            return {"success": True, "message": f"Time synced to {now.isoformat()}"}
+
+        except Exception as e:
+            logger.error(f"[onvif] Time sync error for {self.config.ip}: {e}")
+            return {"success": False, "error": str(e)}
