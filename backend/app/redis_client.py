@@ -1,7 +1,10 @@
 import redis.asyncio as aioredis
 from typing import Optional, Dict, Any
 import json
+import logging
 from app.config import settings
+
+logger = logging.getLogger("mumucam")
 
 
 class RedisClient:
@@ -163,6 +166,56 @@ class RedisClient:
         except Exception as e:
             print(f"Redis HGETALL error: {e}")
             return {}
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Check Redis health: role, writability, and auto-fix slave mode"""
+        result = {"healthy": True, "writable": True, "role": "unknown", "error": None}
+
+        if not self.redis:
+            result.update(healthy=False, writable=False, role="disconnected",
+                          error="Redis not connected (using in-memory fallback)")
+            return result
+
+        try:
+            # Check replication role
+            info = await self.redis.info("replication")
+            role = info.get("role", "unknown")
+            result["role"] = role
+
+            if role != "master":
+                result["healthy"] = False
+                result["writable"] = False
+                result["error"] = f"Redis is running as '{role}' instead of 'master'"
+                logger.error(f"Redis role is '{role}' — attempting REPLICAOF NO ONE to recover")
+                try:
+                    await self.redis.execute_command("REPLICAOF", "NO", "ONE")
+                    # Verify recovery
+                    info_after = await self.redis.info("replication")
+                    new_role = info_after.get("role", "unknown")
+                    if new_role == "master":
+                        result.update(healthy=True, writable=True, role="master",
+                                      error=f"Auto-recovered from '{role}' to 'master'")
+                        logger.warning(f"Redis auto-recovered from '{role}' to 'master'")
+                    else:
+                        logger.error(f"Redis recovery failed, still '{new_role}'")
+                except Exception as fix_err:
+                    logger.error(f"Failed to execute REPLICAOF NO ONE: {fix_err}")
+                    result["error"] += f"; auto-fix failed: {fix_err}"
+                return result
+
+            # Verify write capability
+            try:
+                await self.redis.set("_health_check_test", "OK", ex=10)
+                result["writable"] = True
+            except Exception as write_err:
+                result["healthy"] = False
+                result["writable"] = False
+                result["error"] = f"Redis write test failed: {write_err}"
+
+        except Exception as e:
+            result.update(healthy=False, writable=False, error=str(e))
+
+        return result
 
 
 # Global Redis client instance

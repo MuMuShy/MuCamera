@@ -105,12 +105,33 @@ async def verify_device_ownership(db: AsyncSession, user: User, device_id: str) 
     return device
 
 
+# Redis health state (updated by background loop)
+_redis_health: dict = {"healthy": False, "writable": False, "role": "unknown", "error": "Not checked yet"}
+
+
+async def _redis_health_loop():
+    """Background task: check Redis health every 30 seconds"""
+    global _redis_health
+    while True:
+        try:
+            _redis_health = await redis_client.health_check()
+            if _redis_health["healthy"]:
+                logger.debug(f"Redis health OK: role={_redis_health['role']}")
+            else:
+                logger.error(f"Redis health FAIL: {_redis_health}")
+        except Exception as e:
+            logger.error(f"Redis health check exception: {e}")
+            _redis_health = {"healthy": False, "writable": False, "role": "unknown", "error": str(e)}
+        await asyncio.sleep(30)
+
+
 # Startup/Shutdown events
 @app.on_event("startup")
 async def startup_event():
     """Initialize connections on startup"""
     await redis_client.connect()
     logger.info("Redis connected")
+    asyncio.create_task(_redis_health_loop())
 
 
 @app.on_event("shutdown")
@@ -133,7 +154,16 @@ async def root():
 @app.get("/health")
 async def health():
     """Health check endpoint"""
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+    overall = "healthy" if _redis_health.get("healthy", False) else "degraded"
+    return {
+        "status": overall,
+        "redis": {
+            "healthy": _redis_health.get("healthy", False),
+            "writable": _redis_health.get("writable", False),
+            "role": _redis_health.get("role", "unknown"),
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+    }
 
 
 @app.get("/api/turn/credentials")
@@ -257,6 +287,10 @@ async def get_user_devices(
         .where(DeviceOwnership.user_id == user.id)
     )
     devices = result.scalars().all()
+
+    # Override DB is_online with real-time WebSocket connection state
+    for device in devices:
+        device.is_online = manager.is_device_online(device.device_id)
 
     return devices
 

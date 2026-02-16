@@ -2076,6 +2076,49 @@ body {
     box-shadow: 0 0 8px var(--success-glow);
 }
 
+/* Status badge inside sysinfo cards */
+.sysinfo-card .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+}
+
+.sysinfo-card .status-badge.online {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.3);
+    color: var(--success-color);
+}
+
+.sysinfo-card .status-badge.degraded {
+    background: rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.3);
+    color: var(--warning-color);
+}
+
+.sysinfo-card .status-badge .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+}
+
+.sysinfo-card .status-badge.online .dot {
+    background: var(--success-color);
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+}
+
+.sysinfo-card .status-badge.degraded .dot {
+    background: var(--warning-color);
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+}
+
 .sysinfo-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));

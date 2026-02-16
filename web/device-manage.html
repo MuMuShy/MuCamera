@@ -84,6 +84,71 @@
             </header>
 
             <div class="content-area">
+                <!-- Server Health Section (always visible) -->
+                <div class="control-section" id="serverHealthSection" style="margin-bottom: 24px;">
+                    <div class="control-section-title">
+                        <i data-lucide="activity" style="width: 16px; height: 16px;"></i>
+                        伺服器狀態
+                    </div>
+                    <div class="sysinfo-grid" style="margin-bottom: 0;">
+                        <!-- Redis Card -->
+                        <div class="sysinfo-card" id="redisCard">
+                            <div class="sysinfo-card-header">
+                                <div class="sysinfo-card-title">
+                                    <div class="card-icon">
+                                        <i data-lucide="database" style="width: 16px; height: 16px;"></i>
+                                    </div>
+                                    Redis
+                                </div>
+                                <span class="status-badge" id="redisStatusBadge">
+                                    <span class="dot"></span>
+                                    <span id="redisStatusText">檢查中...</span>
+                                </span>
+                            </div>
+                            <div class="sysinfo-rows">
+                                <div class="sysinfo-row">
+                                    <span class="sysinfo-row-label">角色</span>
+                                    <span class="sysinfo-row-value" id="redisRole">--</span>
+                                </div>
+                                <div class="sysinfo-row">
+                                    <span class="sysinfo-row-label">可寫入</span>
+                                    <span class="sysinfo-row-value" id="redisWritable">--</span>
+                                </div>
+                                <div class="sysinfo-row">
+                                    <span class="sysinfo-row-label">最後檢查</span>
+                                    <span class="sysinfo-row-value" id="redisLastCheck">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Backend Card -->
+                        <div class="sysinfo-card" id="backendCard">
+                            <div class="sysinfo-card-header">
+                                <div class="sysinfo-card-title">
+                                    <div class="card-icon">
+                                        <i data-lucide="server" style="width: 16px; height: 16px;"></i>
+                                    </div>
+                                    後端服務
+                                </div>
+                                <span class="status-badge" id="backendStatusBadge">
+                                    <span class="dot"></span>
+                                    <span id="backendStatusText">檢查中...</span>
+                                </span>
+                            </div>
+                            <div class="sysinfo-rows">
+                                <div class="sysinfo-row">
+                                    <span class="sysinfo-row-label">整體狀態</span>
+                                    <span class="sysinfo-row-value" id="backendStatus">--</span>
+                                </div>
+                                <div class="sysinfo-row">
+                                    <span class="sysinfo-row-label">伺服器時間</span>
+                                    <span class="sysinfo-row-value" id="backendTimestamp">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- No device selected placeholder -->
                 <div id="noDeviceState" class="sysinfo-no-data">
                     <div class="no-data-icon">

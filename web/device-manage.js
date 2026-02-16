@@ -383,6 +383,86 @@
         setTimeout(() => toast.remove(), 4000);
     }
 
+    // -------- Server health --------
+    const SERVER_HEALTH_INTERVAL = 30000; // 30 seconds
+    let serverHealthTimer = null;
+
+    async function fetchServerHealth() {
+        try {
+            const res = await fetch(`${API_BASE}/health`);
+            const data = await res.json();
+
+            // Backend status
+            const backendBadge = document.getElementById('backendStatusBadge');
+            const backendText = document.getElementById('backendStatusText');
+            const backendStatusVal = document.getElementById('backendStatus');
+            const backendTimestamp = document.getElementById('backendTimestamp');
+
+            if (res.ok) {
+                const isHealthy = data.status === 'healthy';
+                backendBadge.classList.toggle('online', isHealthy);
+                backendBadge.classList.toggle('degraded', !isHealthy);
+                backendText.textContent = isHealthy ? '正常' : '異常';
+                backendStatusVal.textContent = isHealthy ? '正常' : '降級';
+                backendStatusVal.style.color = isHealthy ? 'var(--success-color)' : 'var(--warning-color)';
+            } else {
+                backendBadge.classList.remove('online');
+                backendText.textContent = '異常';
+                backendStatusVal.textContent = '無法連線';
+                backendStatusVal.style.color = 'var(--danger-color)';
+            }
+
+            if (data.timestamp) {
+                const t = new Date(data.timestamp);
+                backendTimestamp.textContent = t.toLocaleTimeString('zh-TW');
+            }
+
+            // Redis status
+            const redis = data.redis || {};
+            const redisBadge = document.getElementById('redisStatusBadge');
+            const redisText = document.getElementById('redisStatusText');
+            const redisRole = document.getElementById('redisRole');
+            const redisWritable = document.getElementById('redisWritable');
+            const redisLastCheck = document.getElementById('redisLastCheck');
+
+            if (redis.healthy) {
+                redisBadge.classList.add('online');
+                redisBadge.classList.remove('degraded');
+                redisText.textContent = '正常';
+            } else {
+                redisBadge.classList.remove('online');
+                redisBadge.classList.add('degraded');
+                redisText.textContent = '異常';
+            }
+
+            redisRole.textContent = redis.role || '--';
+            redisRole.style.color = redis.role === 'master' ? 'var(--success-color)' : 'var(--danger-color)';
+
+            redisWritable.textContent = redis.writable ? '是' : '否';
+            redisWritable.style.color = redis.writable ? 'var(--success-color)' : 'var(--danger-color)';
+
+            redisLastCheck.textContent = new Date().toLocaleTimeString('zh-TW');
+
+        } catch (e) {
+            console.error('Failed to fetch server health:', e);
+            const backendBadge = document.getElementById('backendStatusBadge');
+            const backendText = document.getElementById('backendStatusText');
+            backendBadge.classList.remove('online');
+            backendText.textContent = '無法連線';
+
+            const redisBadge = document.getElementById('redisStatusBadge');
+            const redisText = document.getElementById('redisStatusText');
+            redisBadge.classList.remove('online');
+            redisText.textContent = '未知';
+        }
+    }
+
+    function startServerHealthRefresh() {
+        fetchServerHealth();
+        serverHealthTimer = setInterval(fetchServerHealth, SERVER_HEALTH_INTERVAL);
+    }
+
     // -------- Init --------
     loadDevices();
+    startServerHealthRefresh();
 })();
