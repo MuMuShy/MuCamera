@@ -1223,9 +1223,14 @@ async def _prefetch_segments(device_id: str, start: str, segment_names: list):
     prefetch_limit = min(len(segment_names), 12)
     for seg_name in segment_names[:prefetch_limit]:
         cache_key = f"stream:seg:{device_id}:{start}:{seg_name}"
-        # 已快取就跳過
-        if await redis_client.exists(cache_key):
+        fetch_key = f"stream:fetching:{device_id}:{start}:{seg_name}"
+
+        # 已快取或正在抓取就跳過
+        if await redis_client.exists(cache_key) or await redis_client.exists(fetch_key):
             continue
+
+        # 標記為正在抓取（防止 HLS.js 重複請求）
+        await redis_client.set(fetch_key, "1", ex=60)
 
         rid = str(uuid.uuid4())
         proxy_request = {
@@ -1249,7 +1254,6 @@ async def _prefetch_segments(device_id: str, start: str, segment_names: list):
                     await redis_client.delete(f"playback:response:{rid}")
                     if "error" not in resp_data:
                         body_b64 = resp_data.get("body_b64", "")
-                        # 直接存 base64 字串到 Redis，避免二次序列化
                         await redis_client.set(cache_key, body_b64, ex=300)
                         logger.info(f"[prefetch] Cached {seg_name} for {device_id}")
                     else:
@@ -1258,6 +1262,8 @@ async def _prefetch_segments(device_id: str, start: str, segment_names: list):
                 await asyncio.sleep(0.5)
         except Exception as e:
             logger.error(f"[prefetch] Failed to prefetch {seg_name}: {e}")
+        finally:
+            await redis_client.delete(fetch_key)
 
 
 @app.get("/api/devices/{device_id}/recordings/stream")
@@ -1366,17 +1372,34 @@ async def get_device_stream_segment(
 
     # 先檢查 Redis 快取
     cache_key = f"stream:seg:{device_id}:{start}:{segment}"
+    fetch_key = f"stream:fetching:{device_id}:{start}:{segment}"
+
     cached = await redis_client.get(cache_key)
     if cached:
         logger.info(f"[stream] Cache hit for {segment}")
         body = base64.b64decode(cached) if cached else b""
         return Response(content=body, media_type="video/mp2t")
 
+    # 如果預抓正在進行，等它完成而不是發新請求
+    if await redis_client.exists(fetch_key):
+        logger.info(f"[stream] Waiting for prefetch of {segment}")
+        for _ in range(120):  # 最多等 60 秒
+            cached = await redis_client.get(cache_key)
+            if cached:
+                logger.info(f"[stream] Prefetch completed for {segment}")
+                body = base64.b64decode(cached)
+                return Response(content=body, media_type="video/mp2t")
+            await asyncio.sleep(0.5)
+        # 預抓超時，繼續走正常流程
+        logger.warning(f"[stream] Prefetch timeout for {segment}, falling through")
+
     if not manager.is_device_online(device_id):
         raise HTTPException(status_code=503, detail="Device offline")
 
-    rid = str(uuid.uuid4())
+    # 標記正在抓取
+    await redis_client.set(fetch_key, "1", ex=60)
 
+    rid = str(uuid.uuid4())
     proxy_request = {
         "type": "proxy_playback",
         "ts": datetime.utcnow().isoformat(),
@@ -1392,10 +1415,11 @@ async def get_device_stream_segment(
 
     await manager.send_to_device(device_id, proxy_request)
 
-    for attempt in range(120):  # 60 秒 timeout（原 30 秒不夠）
+    for attempt in range(120):  # 60 秒 timeout
         resp_data = await redis_client.get(f"playback:response:{rid}")
         if resp_data:
             await redis_client.delete(f"playback:response:{rid}")
+            await redis_client.delete(fetch_key)
 
             if "error" in resp_data:
                 raise HTTPException(status_code=502, detail=resp_data["error"])
@@ -1412,6 +1436,7 @@ async def get_device_stream_segment(
             )
         await asyncio.sleep(0.5)
 
+    await redis_client.delete(fetch_key)
     raise HTTPException(status_code=504, detail="Stream segment timeout")
 
 

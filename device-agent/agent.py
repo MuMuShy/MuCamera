@@ -241,9 +241,9 @@ class Go2RTCProxyAgent:
                 self.ws = await asyncio.wait_for(
                     websockets.connect(
                         self.backend_url,
-                        ping_interval=5,
-                        ping_timeout=5,
-                        close_timeout=5,
+                        ping_interval=10,
+                        ping_timeout=30,
+                        close_timeout=10,
                         max_size=10 * 1024 * 1024
                     ),
                     timeout=connect_timeout
