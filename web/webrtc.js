@@ -113,17 +113,18 @@ if (typeof window.MuMuCamera === 'undefined') {
                 });
 
                 checkCount++;
-                // Log status every 8 checks (~16s)
-                if (checkCount % 8 === 0) {
+                // Log status every 6 checks (~30s)
+                if (checkCount % 6 === 0) {
                     console.log(`[health] frames=${currentFrames}, ice=${pc.iceConnectionState}`);
                 }
 
                 // Detect stall: no new frames
-                if (currentFrames === lastFramesReceived && checkCount > 1) {
+                if (currentFrames === lastFramesReceived && checkCount > 2) {
                     stallCount++;
 
-                    // Never received any frame = connection setup issue, reconnect faster
-                    const threshold = (currentFrames === 0) ? 2 : 4;
+                    // Never received any frame = connection setup issue
+                    // Mid-stream freeze = more tolerant (4G jitter)
+                    const threshold = (currentFrames === 0) ? 3 : 5;
                     const label = (currentFrames === 0) ? '無畫面' : '畫面凍結';
 
                     if (stallCount >= threshold - 1) {
@@ -144,7 +145,7 @@ if (typeof window.MuMuCamera === 'undefined') {
             } catch (e) {
                 // pc might be closed
             }
-        }, 3000);
+        }, 5000);
     }
 
     function stopHealthCheck() {
