@@ -526,7 +526,9 @@ async def download_recording(
         raise HTTPException(404, "找不到錄影檔案")
 
     if format == "mp4":
-        # 用 ffmpeg remux .ts → .mp4（僅複製不重新編碼，速度很快）
+        # 用 ffmpeg remux .ts → .mp4
+        # 影片直接複製（不重新編碼），音訊轉 AAC 確保 QuickTime/iOS 相容
+        # 若無音軌則自動忽略音訊設定
         mp4_name = filename.replace(".ts", ".mp4")
         mp4_cache = Path(HLS_CACHE_DIR) / "mp4"
         mp4_cache.mkdir(parents=True, exist_ok=True)
@@ -534,14 +536,44 @@ async def download_recording(
 
         # 如果尚未轉換或來源更新，重新轉換
         if not mp4_path.exists() or file_path.stat().st_mtime > mp4_path.stat().st_mtime:
+            # 先探測是否有音軌
+            probe_cmd = [
+                "ffprobe", "-v", "quiet",
+                "-select_streams", "a",
+                "-show_entries", "stream=codec_name",
+                "-of", "csv=p=0",
+                str(file_path)
+            ]
+            has_audio = False
+            audio_is_aac = False
+            try:
+                probe = await asyncio.create_subprocess_exec(
+                    *probe_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                probe_out, _ = await asyncio.wait_for(probe.communicate(), timeout=10)
+                audio_codec = probe_out.decode().strip()
+                if audio_codec:
+                    has_audio = True
+                    audio_is_aac = audio_codec == "aac"
+            except Exception:
+                pass
+
             cmd = [
                 "ffmpeg", "-y",
                 "-hide_banner", "-loglevel", "warning",
                 "-i", str(file_path),
-                "-c", "copy",
-                "-movflags", "+faststart",
-                str(mp4_path)
+                "-c:v", "copy",
             ]
+            if has_audio and audio_is_aac:
+                cmd += ["-c:a", "copy"]
+            elif has_audio:
+                cmd += ["-c:a", "aac", "-b:a", "128k"]
+            else:
+                cmd += ["-an"]
+            cmd += ["-movflags", "+faststart", str(mp4_path)]
+
             try:
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
