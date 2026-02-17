@@ -121,17 +121,22 @@ if (typeof window.MuMuCamera === 'undefined') {
                 // Detect stall: no new frames
                 if (currentFrames === lastFramesReceived && checkCount > 1) {
                     stallCount++;
-                    if (stallCount >= 3) {
-                        console.warn(`[health] No new frames (${stallCount}/4), total=${currentFrames}`);
+
+                    // Never received any frame = connection setup issue, reconnect faster
+                    const threshold = (currentFrames === 0) ? 2 : 4;
+                    const label = (currentFrames === 0) ? '無畫面' : '畫面凍結';
+
+                    if (stallCount >= threshold - 1) {
+                        console.warn(`[health] ${label} (${stallCount}/${threshold}), total=${currentFrames}`);
                     }
 
-                    if (stallCount >= 4) {
-                        console.warn('[health] Stream frozen, reconnecting...');
+                    if (stallCount >= threshold) {
+                        console.warn(`[health] ${label}，重新連線...`);
                         updateConnectionStatus('重新連線中...');
                         reconnectStream();
                     }
                 } else {
-                    if (stallCount >= 3) console.log('[health] Stream recovered');
+                    if (stallCount >= 2) console.log('[health] Stream recovered');
                     stallCount = 0;
                 }
 
