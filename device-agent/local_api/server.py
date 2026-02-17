@@ -513,9 +513,10 @@ async def get_recording_info(
 @app.get("/recordings/{filename}/download")
 async def download_recording(
     filename: str,
-    source: str = Query("cam", description="攝影機來源")
+    source: str = Query("cam", description="攝影機來源"),
+    format: str = Query("ts", description="下載格式（ts 或 mp4）")
 ):
-    """直接下載錄影檔案"""
+    """直接下載錄影檔案（支援 MP4 格式轉換）"""
     # 驗證檔名（防止路徑穿越）
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(400, "檔名無效")
@@ -523,6 +524,42 @@ async def download_recording(
     file_path = Path(get_recording_dir(source)) / filename
     if not file_path.exists():
         raise HTTPException(404, "找不到錄影檔案")
+
+    if format == "mp4":
+        # 用 ffmpeg remux .ts → .mp4（僅複製不重新編碼，速度很快）
+        mp4_name = filename.replace(".ts", ".mp4")
+        mp4_cache = Path(HLS_CACHE_DIR) / "mp4"
+        mp4_cache.mkdir(parents=True, exist_ok=True)
+        mp4_path = mp4_cache / mp4_name
+
+        # 如果尚未轉換或來源更新，重新轉換
+        if not mp4_path.exists() or file_path.stat().st_mtime > mp4_path.stat().st_mtime:
+            cmd = [
+                "ffmpeg", "-y",
+                "-hide_banner", "-loglevel", "warning",
+                "-i", str(file_path),
+                "-c", "copy",
+                "-movflags", "+faststart",
+                str(mp4_path)
+            ]
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                _, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
+                if process.returncode != 0:
+                    logger.error(f"[local_api] MP4 轉換失敗：{stderr.decode()}")
+                    raise HTTPException(500, "MP4 轉換失敗")
+            except asyncio.TimeoutError:
+                raise HTTPException(500, "MP4 轉換逾時")
+
+        return FileResponse(
+            path=str(mp4_path),
+            filename=mp4_name,
+            media_type="video/mp4"
+        )
 
     return FileResponse(
         path=str(file_path),

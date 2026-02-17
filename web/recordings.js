@@ -31,6 +31,7 @@ let timelineData = null;
 let currentPlaybackTime = null;
 let isPlaying = false;
 let currentRecordingSource = 'cam';
+let currentPlayingFilename = null;
 
 // Switch recording source (cam / cam2)
 function switchRecordingSource(source) {
@@ -353,11 +354,24 @@ async function startPlaybackFromTime(startTime) {
     const playerStatus = document.getElementById('playerStatus');
     const cursor = document.getElementById('timelineCursor');
 
+    // Find which file is being played
+    const segment = findSegmentAtTime(startTime);
+    currentPlayingFilename = segment ? segment.filename : null;
+
     // Show video, hide placeholder
     placeholder.classList.add('hidden');
     videoPlayer.classList.add('active');
     currentPlaybackTime = startTime;
     isPlaying = true;
+
+    // Show player toolbar
+    const toolbar = document.getElementById('playerToolbar');
+    const toolbarInfo = document.getElementById('playerToolbarInfo');
+    if (toolbar) toolbar.style.display = 'flex';
+    if (toolbarInfo) {
+        const timeStr = formatTime(startTime);
+        toolbarInfo.textContent = currentPlayingFilename ? `${currentPlayingFilename} (${timeStr})` : timeStr;
+    }
 
     // Update cursor position
     updateCursorPosition(startTime);
@@ -390,7 +404,11 @@ async function startPlaybackFromTime(startTime) {
         hlsPlayer = new Hls({
             debug: false,
             enableWorker: true,
-            lowLatencyMode: false
+            lowLatencyMode: false,
+            manifestLoadingTimeOut: 120000,   // 120 秒等待播放清單
+            manifestLoadingMaxRetry: 3,
+            levelLoadingTimeOut: 60000,
+            fragLoadingTimeOut: 60000
         });
 
         hlsPlayer.loadSource(streamUrl);
@@ -545,6 +563,11 @@ function stopPlayback() {
     cursor.classList.remove('active');
     isPlaying = false;
     currentPlaybackTime = null;
+    currentPlayingFilename = null;
+
+    // Hide player toolbar
+    const toolbar = document.getElementById('playerToolbar');
+    if (toolbar) toolbar.style.display = 'none';
 
     // Reset UI
     if (playerStatus) playerStatus.textContent = '等待播放';
@@ -603,7 +626,7 @@ async function loadRecordings() {
                     </div>
                     <div class="recording-actions">
                         <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); downloadRecording('${escapeHtml(rec.filename)}')">
-                            下載
+                            MP4
                         </button>
                     </div>
                 </div>
@@ -656,20 +679,47 @@ async function loadStats() {
 
 // Play a specific recording file
 async function playRecording(filename, startTime) {
+    currentPlayingFilename = filename;
     const time = new Date(startTime);
     await startPlaybackFromTime(time);
 }
 
-// Download recording
+// Download recording as MP4
 function downloadRecording(filename) {
     const token = checkAuth();
     if (!token || !currentDeviceId) return;
 
-    const downloadUrl = `${API_BASE}/api/devices/${currentDeviceId}/recordings/${filename}/download?source=${currentRecordingSource}&token=${token}`;
+    const mp4Name = filename.replace('.ts', '.mp4');
+    const downloadUrl = `${API_BASE}/api/devices/${currentDeviceId}/recordings/${filename}/download?source=${currentRecordingSource}&format=mp4&token=${token}`;
+
+    showToast('準備下載 MP4，請稍候...', 'info');
 
     const a = document.createElement('a');
     a.href = downloadUrl;
-    a.download = filename;
+    a.download = mp4Name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+}
+
+// Download current playing recording as MP4
+function downloadCurrentMp4() {
+    if (!currentPlayingFilename || !currentDeviceId) {
+        showToast('沒有正在播放的錄影', 'error');
+        return;
+    }
+
+    const token = checkAuth();
+    if (!token) return;
+
+    const mp4Name = currentPlayingFilename.replace('.ts', '.mp4');
+    const downloadUrl = `${API_BASE}/api/devices/${currentDeviceId}/recordings/${currentPlayingFilename}/download?source=${currentRecordingSource}&format=mp4&token=${token}`;
+
+    showToast('準備下載 MP4，請稍候...', 'info');
+
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = mp4Name;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -819,6 +869,12 @@ document.addEventListener('DOMContentLoaded', function () {
     const playerCloseBtn = document.getElementById('playerCloseBtn');
     if (playerCloseBtn) {
         playerCloseBtn.addEventListener('click', stopPlayback);
+    }
+
+    // Download MP4 button
+    const downloadMp4Btn = document.getElementById('downloadMp4Btn');
+    if (downloadMp4Btn) {
+        downloadMp4Btn.addEventListener('click', downloadCurrentMp4);
     }
 
     // File panel toggle

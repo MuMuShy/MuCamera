@@ -1058,11 +1058,12 @@ async def download_recording(
     filename: str,
     token: str,
     source: str = "cam",
+    format: str = "ts",
     db: AsyncSession = Depends(get_db)
 ):
     """
     Download a recording file.
-    Note: For large files, consider implementing streaming or direct device connection.
+    Supports format=mp4 for MP4 remux download.
     """
     import asyncio
     import base64
@@ -1077,23 +1078,34 @@ async def download_recording(
 
     rid = str(uuid.uuid4())
 
+    # 傳遞 format 參數到裝置
+    download_path = f"/recordings/{filename}/download?source={source}"
+    if format == "mp4":
+        download_path += "&format=mp4"
+
+    # MP4 轉換需要更長時間
+    timeout_ms = 120000 if format == "mp4" else 60000
+
     proxy_request = {
         "type": "proxy_playback",
         "ts": datetime.utcnow().isoformat(),
         "payload": {
             "rid": rid,
             "method": "GET",
-            "path": f"/recordings/{filename}/download?source={source}",
+            "path": download_path,
             "headers": {},
             "body_b64": None,
-            "timeout_ms": 60000
+            "timeout_ms": timeout_ms
         }
     }
 
-    logger.info(f"[recordings] Download request for {filename} from {device_id}")
+    logger.info(f"[recordings] Download request for {filename} (format={format}) from {device_id}")
     await manager.send_to_device(device_id, proxy_request)
 
-    for attempt in range(120):
+    # MP4 需要更多等待時間
+    max_attempts = 240 if format == "mp4" else 120
+
+    for attempt in range(max_attempts):
         resp_data = await redis_client.get(f"playback:response:{rid}")
         if resp_data:
             await redis_client.delete(f"playback:response:{rid}")
@@ -1104,11 +1116,14 @@ async def download_recording(
             body_b64 = resp_data.get("body_b64", "")
             body = base64.b64decode(body_b64) if body_b64 else b""
 
+            dl_filename = filename.replace(".ts", ".mp4") if format == "mp4" else filename
+            media_type = "video/mp4" if format == "mp4" else "video/mp2t"
+
             return Response(
                 content=body,
-                media_type="video/mp2t",
+                media_type=media_type,
                 headers={
-                    "Content-Disposition": f"attachment; filename={filename}"
+                    "Content-Disposition": f"attachment; filename={dl_filename}"
                 }
             )
         await asyncio.sleep(0.5)
