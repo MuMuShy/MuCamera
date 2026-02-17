@@ -1193,6 +1193,48 @@ async def get_device_timeline(
     raise HTTPException(status_code=504, detail="Timeline API timeout")
 
 
+async def _prefetch_segments(device_id: str, start: str, segment_names: list):
+    """背景預抓 HLS segments 並快取到 Redis（最多 12 個，約 2 分鐘）"""
+    prefetch_limit = min(len(segment_names), 12)
+    for seg_name in segment_names[:prefetch_limit]:
+        cache_key = f"stream:seg:{device_id}:{start}:{seg_name}"
+        # 已快取就跳過
+        if await redis_client.exists(cache_key):
+            continue
+
+        rid = str(uuid.uuid4())
+        proxy_request = {
+            "type": "proxy_playback",
+            "ts": datetime.utcnow().isoformat(),
+            "payload": {
+                "rid": rid,
+                "method": "GET",
+                "path": f"/recordings/stream/{seg_name}?start={start}",
+                "headers": {},
+                "body_b64": None,
+                "timeout_ms": 60000
+            }
+        }
+
+        try:
+            await manager.send_to_device(device_id, proxy_request)
+            for _ in range(120):  # 60 秒
+                resp_data = await redis_client.get(f"playback:response:{rid}")
+                if resp_data:
+                    await redis_client.delete(f"playback:response:{rid}")
+                    if "error" not in resp_data:
+                        body_b64 = resp_data.get("body_b64", "")
+                        # 直接存 base64 字串到 Redis，避免二次序列化
+                        await redis_client.set(cache_key, body_b64, ex=300)
+                        logger.info(f"[prefetch] Cached {seg_name} for {device_id}")
+                    else:
+                        logger.warning(f"[prefetch] Error fetching {seg_name}: {resp_data.get('error')}")
+                    break
+                await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.error(f"[prefetch] Failed to prefetch {seg_name}: {e}")
+
+
 @app.get("/api/devices/{device_id}/recordings/stream")
 async def get_device_stream_playlist(
     device_id: str,
@@ -1207,7 +1249,6 @@ async def get_device_stream_playlist(
     實現跨檔連續播放功能。
     """
     import asyncio
-    import re
     from urllib.parse import quote
 
     user = await get_current_user(db, token)
@@ -1254,20 +1295,24 @@ async def get_device_stream_playlist(
             body_b64 = resp_data.get("body_b64", "")
             body = base64.b64decode(body_b64).decode('utf-8') if body_b64 else ""
 
-            # 修正片段 URL 路徑
-            # 將 seg_XXXX.ts 改為 stream/seg_XXXX.ts?start=<原始start參數>
-            # 這樣 HLS.js 才能正確解析相對路徑
+            # 解析 segment 名稱，用於背景預抓
+            segment_names = []
             encoded_start = quote(start, safe='')
             lines = body.split('\n')
             fixed_lines = []
             for line in lines:
                 if line.strip().endswith('.ts') and not line.startswith('#'):
-                    # 這是片段檔案名稱，加上正確的路徑前綴和參數
                     segment_name = line.strip()
+                    segment_names.append(segment_name)
                     fixed_lines.append(f"stream/{segment_name}?start={encoded_start}&token={token}")
                 else:
                     fixed_lines.append(line)
             body = '\n'.join(fixed_lines)
+
+            # 背景預抓所有 segments（不阻塞回應）
+            if segment_names:
+                logger.info(f"[stream] Starting prefetch of {len(segment_names)} segments for {device_id}")
+                asyncio.create_task(_prefetch_segments(device_id, start, segment_names))
 
             return Response(
                 content=body,
@@ -1294,6 +1339,14 @@ async def get_device_stream_segment(
         raise HTTPException(status_code=401, detail="Invalid token")
     await verify_device_ownership(db, user, device_id)
 
+    # 先檢查 Redis 快取
+    cache_key = f"stream:seg:{device_id}:{start}:{segment}"
+    cached = await redis_client.get(cache_key)
+    if cached:
+        logger.info(f"[stream] Cache hit for {segment}")
+        body = base64.b64decode(cached) if cached else b""
+        return Response(content=body, media_type="video/mp2t")
+
     if not manager.is_device_online(device_id):
         raise HTTPException(status_code=503, detail="Device offline")
 
@@ -1308,13 +1361,13 @@ async def get_device_stream_segment(
             "path": f"/recordings/stream/{segment}?start={start}",
             "headers": {},
             "body_b64": None,
-            "timeout_ms": 30000
+            "timeout_ms": 60000
         }
     }
 
     await manager.send_to_device(device_id, proxy_request)
 
-    for attempt in range(60):
+    for attempt in range(120):  # 60 秒 timeout（原 30 秒不夠）
         resp_data = await redis_client.get(f"playback:response:{rid}")
         if resp_data:
             await redis_client.delete(f"playback:response:{rid}")
@@ -1324,6 +1377,9 @@ async def get_device_stream_segment(
 
             body_b64 = resp_data.get("body_b64", "")
             body = base64.b64decode(body_b64) if body_b64 else b""
+
+            # 快取到 Redis（5 分鐘 TTL）
+            await redis_client.set(cache_key, body_b64, ex=300)
 
             return Response(
                 content=body,
