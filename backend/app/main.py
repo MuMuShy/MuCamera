@@ -1105,26 +1105,27 @@ async def download_recording(
     dl_filename = filename.replace(".ts", ".mp4") if format == "mp4" else filename
     media_type = "video/mp4" if format == "mp4" else "video/mp2t"
 
-    # 等待裝置回應（可能是普通回應或分塊 metadata）
-    max_wait = 240 if format == "mp4" else 120
+    # 立即回傳 StreamingResponse，在 generator 裡等資料
+    # 這樣 HTTP headers 馬上送出，Cloudflare 不會斷線
+    async def generate_download():
+        max_wait = 480 if format == "mp4" else 240  # metadata 最多等 240/120 秒
 
-    for attempt in range(max_wait):
-        resp_data = await redis_client.get(f"playback:response:{rid}")
-        if resp_data:
-            if "error" in resp_data:
-                await redis_client.delete(f"playback:response:{rid}")
-                raise HTTPException(status_code=502, detail=resp_data["error"])
+        for attempt in range(max_wait):
+            resp_data = await redis_client.get(f"playback:response:{rid}")
+            if resp_data:
+                if "error" in resp_data:
+                    await redis_client.delete(f"playback:response:{rid}")
+                    logger.error(f"[download] Device error: {resp_data['error']}")
+                    return
 
-            if resp_data.get("chunked"):
-                # 分塊傳輸：使用 StreamingResponse 邊收邊傳
-                total_chunks = resp_data["total_chunks"]
-                total_size = resp_data.get("total_size", 0)
-                logger.info(f"[download] Streaming {total_chunks} chunks ({total_size} bytes) for {filename}")
+                if resp_data.get("chunked"):
+                    # 分塊傳輸
+                    total_chunks = resp_data["total_chunks"]
+                    total_size = resp_data.get("total_size", 0)
+                    logger.info(f"[download] Streaming {total_chunks} chunks ({total_size} bytes) for {filename}")
 
-                async def generate_chunks():
                     for i in range(total_chunks):
-                        # 等待每個 chunk 到達（每個 chunk 最多等 60 秒）
-                        for _ in range(120):
+                        for _ in range(120):  # 每個 chunk 最多等 60 秒
                             chunk_b64 = await redis_client.get(f"playback:chunk:{rid}:{i}")
                             if chunk_b64:
                                 await redis_client.delete(f"playback:chunk:{rid}:{i}")
@@ -1134,36 +1135,25 @@ async def download_recording(
                         else:
                             logger.error(f"[download] Timeout waiting for chunk {i}/{total_chunks}")
                             break
-                    # 清除 metadata
                     await redis_client.delete(f"playback:response:{rid}")
+                else:
+                    # 普通回應（小檔案）
+                    await redis_client.delete(f"playback:response:{rid}")
+                    body_b64 = resp_data.get("body_b64", "")
+                    if body_b64:
+                        yield base64.b64decode(body_b64)
+                return
+            await asyncio.sleep(0.5)
 
-                resp_headers = {
-                    "Content-Disposition": f"attachment; filename={dl_filename}",
-                }
-                if total_size:
-                    resp_headers["Content-Length"] = str(total_size)
+        logger.error(f"[download] Timeout waiting for device response for {filename}")
 
-                return StreamingResponse(
-                    generate_chunks(),
-                    media_type=media_type,
-                    headers=resp_headers
-                )
-            else:
-                # 普通回應（小檔案）
-                await redis_client.delete(f"playback:response:{rid}")
-                body_b64 = resp_data.get("body_b64", "")
-                body = base64.b64decode(body_b64) if body_b64 else b""
-
-                return Response(
-                    content=body,
-                    media_type=media_type,
-                    headers={
-                        "Content-Disposition": f"attachment; filename={dl_filename}"
-                    }
-                )
-        await asyncio.sleep(0.5)
-
-    raise HTTPException(status_code=504, detail="Download timeout")
+    return StreamingResponse(
+        generate_download(),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f"attachment; filename={dl_filename}"
+        }
+    )
 
 
 # ============ Timeline API ============
