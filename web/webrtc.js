@@ -19,11 +19,8 @@ if (typeof window.MuMuCamera === 'undefined') {
     const ORIGIN = window.location.origin;
     const HOST = window.location.hostname;
 
-    // In production, use same origin (nginx proxies /api and /ws to backend)
-    // In dev with port 8080, redirect to backend port 8000
-    const API_BASE = (window.location.port === "8080")
-        ? ORIGIN.replace(":8080", ":8000")
-        : ORIGIN;
+    // Use same origin - nginx proxies /api and /ws to backend
+    const API_BASE = ORIGIN;
 
     const WS_BASE = API_BASE.replace("https://", "wss://").replace("http://", "ws://");
 

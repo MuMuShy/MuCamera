@@ -3,7 +3,7 @@
  * 支援 24 小時時間軸拖曳播放
  */
 
-const API_BASE = window.location.origin.replace(':8080', ':8000');
+const API_BASE = window.location.origin;
 
 // XSS protection helper
 function escapeHtml(str) {
@@ -684,22 +684,56 @@ async function playRecording(filename, startTime) {
     await startPlaybackFromTime(time);
 }
 
-// Download recording as MP4
-function downloadRecording(filename) {
+// Download MP4 via fetch with progress feedback
+async function fetchAndDownloadMp4(filename) {
     const token = checkAuth();
     if (!token || !currentDeviceId) return;
 
     const mp4Name = filename.replace('.ts', '.mp4');
     const downloadUrl = `${API_BASE}/api/devices/${currentDeviceId}/recordings/${filename}/download?source=${currentRecordingSource}&format=mp4&token=${token}`;
 
-    showToast('準備下載 MP4，請稍候...', 'info');
+    showToast('正在轉檔下載 MP4，請稍候...', 'info');
 
-    const a = document.createElement('a');
-    a.href = downloadUrl;
-    a.download = mp4Name;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    // Disable download button during download
+    const downloadBtn = document.getElementById('downloadMp4Btn');
+    if (downloadBtn) {
+        downloadBtn.disabled = true;
+        downloadBtn.textContent = '轉檔中...';
+    }
+
+    try {
+        const resp = await fetch(downloadUrl);
+        if (!resp.ok) {
+            const errText = await resp.text().catch(() => resp.statusText);
+            throw new Error(errText || `HTTP ${resp.status}`);
+        }
+
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = mp4Name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showToast('MP4 下載完成', 'success');
+    } catch (e) {
+        console.error('[download] MP4 download failed:', e);
+        showToast(`下載失敗：${e.message}`, 'error');
+    } finally {
+        if (downloadBtn) {
+            downloadBtn.disabled = false;
+            downloadBtn.innerHTML = '<i data-lucide="download" style="width: 14px; height: 14px;"></i> 下載 MP4';
+            lucide.createIcons();
+        }
+    }
+}
+
+// Download recording as MP4
+function downloadRecording(filename) {
+    fetchAndDownloadMp4(filename);
 }
 
 // Download current playing recording as MP4
@@ -708,21 +742,7 @@ function downloadCurrentMp4() {
         showToast('沒有正在播放的錄影', 'error');
         return;
     }
-
-    const token = checkAuth();
-    if (!token) return;
-
-    const mp4Name = currentPlayingFilename.replace('.ts', '.mp4');
-    const downloadUrl = `${API_BASE}/api/devices/${currentDeviceId}/recordings/${currentPlayingFilename}/download?source=${currentRecordingSource}&format=mp4&token=${token}`;
-
-    showToast('準備下載 MP4，請稍候...', 'info');
-
-    const a = document.createElement('a');
-    a.href = downloadUrl;
-    a.download = mp4Name;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    fetchAndDownloadMp4(currentPlayingFilename);
 }
 
 // Change date

@@ -2,7 +2,7 @@
  * 水下監視系統 Web Client - Main Application Logic
  */
 
-const API_BASE = window.location.origin.replace(':8080', ':8000');
+const API_BASE = window.location.origin;
 let currentDevices = [];
 
 // XSS protection helper

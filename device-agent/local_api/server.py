@@ -288,8 +288,8 @@ async def get_stream_playlist(
         except ValueError:
             raise HTTPException(400, "end 時間格式無效")
     else:
-        # 預設播放到最新
-        end_dt = datetime.now() + timedelta(hours=24)
+        # 預設只載入起始時間後 30 分鐘（約 6 個 5 分鐘片段），避免一次轉換太多
+        end_dt = start_dt + timedelta(minutes=30)
 
     # 查詢時間範圍內的錄影
     idx.scan_directory()
