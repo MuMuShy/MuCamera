@@ -623,6 +623,9 @@ class Go2RTCProxyAgent:
                 }
             })
 
+    # 大於此值的回應會分塊傳輸（5 MB raw → ~6.7 MB base64，在 WebSocket 10 MB 限制內）
+    CHUNK_SIZE = 5 * 1024 * 1024
+
     async def _handle_proxy_playback(self, payload: dict):
         """Handle HTTP proxy request to local playback API"""
         rid = payload.get("rid")
@@ -658,18 +661,59 @@ class Go2RTCProxyAgent:
                     resp_headers = dict(resp.headers)
                     resp_body = await resp.read()
 
-                    resp_body_b64 = base64.b64encode(resp_body).decode('utf-8')
+                    if len(resp_body) <= self.CHUNK_SIZE:
+                        # 小回應：直接傳送（原有行為）
+                        resp_body_b64 = base64.b64encode(resp_body).decode('utf-8')
+                        response_sent = await self._send_message_safe({
+                            "type": "proxy_playback_resp",
+                            "ts": datetime.utcnow().isoformat(),
+                            "payload": {
+                                "rid": rid,
+                                "status": status,
+                                "headers": resp_headers,
+                                "body_b64": resp_body_b64
+                            }
+                        })
+                    else:
+                        # 大回應：分塊傳送
+                        import math
+                        total_chunks = math.ceil(len(resp_body) / self.CHUNK_SIZE)
+                        logger.info(f"[playback] Large response ({len(resp_body)} bytes), sending in {total_chunks} chunks")
 
-                    response_sent = await self._send_message_safe({
-                        "type": "proxy_playback_resp",
-                        "ts": datetime.utcnow().isoformat(),
-                        "payload": {
-                            "rid": rid,
-                            "status": status,
-                            "headers": resp_headers,
-                            "body_b64": resp_body_b64
-                        }
-                    })
+                        # 先傳 metadata
+                        await self._send_message_safe({
+                            "type": "proxy_playback_resp",
+                            "ts": datetime.utcnow().isoformat(),
+                            "payload": {
+                                "rid": rid,
+                                "status": status,
+                                "headers": resp_headers,
+                                "chunked": True,
+                                "total_chunks": total_chunks,
+                                "total_size": len(resp_body)
+                            }
+                        })
+
+                        # 逐塊傳送
+                        for i in range(total_chunks):
+                            chunk = resp_body[i * self.CHUNK_SIZE:(i + 1) * self.CHUNK_SIZE]
+                            chunk_b64 = base64.b64encode(chunk).decode('utf-8')
+                            sent = await self._send_message_safe({
+                                "type": "proxy_playback_chunk",
+                                "ts": datetime.utcnow().isoformat(),
+                                "payload": {
+                                    "rid": rid,
+                                    "chunk_index": i,
+                                    "body_b64": chunk_b64
+                                }
+                            })
+                            if sent:
+                                logger.debug(f"[playback] Sent chunk {i+1}/{total_chunks}")
+                            else:
+                                logger.error(f"[playback] Failed to send chunk {i+1}/{total_chunks}")
+                                break
+
+                        response_sent = True
 
                     if response_sent:
                         logger.info(f"[playback] {method} {path} → {status} ({len(resp_body)} bytes) ✓")

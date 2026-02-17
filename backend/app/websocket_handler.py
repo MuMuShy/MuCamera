@@ -298,15 +298,31 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
         if rid:
             await redis_client.setex(
                 f"playback:response:{rid}",
-                60,  # 60 second TTL (HLS can take longer)
+                120,  # 120 second TTL（分塊傳輸需要更長時間）
                 payload
             )
             if error:
                 logger.info(f"Stored playback response for rid={rid}, error={error}, device={device_id}")
+            elif payload.get("chunked"):
+                logger.info(f"Stored chunked playback metadata for rid={rid}, total_chunks={payload.get('total_chunks')}, device={device_id}")
             else:
                 logger.info(f"Stored playback response for rid={rid}, status={status}, device={device_id}")
         else:
             logger.warning(f"Received proxy_playback_resp without rid from device={device_id}")
+
+    elif msg_type == "proxy_playback_chunk":
+        # 分塊傳輸的資料塊
+        rid = payload.get("rid")
+        chunk_index = payload.get("chunk_index")
+        if rid is not None and chunk_index is not None:
+            await redis_client.setex(
+                f"playback:chunk:{rid}:{chunk_index}",
+                120,
+                payload.get("body_b64", "")
+            )
+            logger.debug(f"Stored playback chunk {chunk_index} for rid={rid}, device={device_id}")
+        else:
+            logger.warning(f"Received proxy_playback_chunk without rid/chunk_index from device={device_id}")
 
     elif msg_type == "system_info":
         # System info from device - store in Redis with TTL

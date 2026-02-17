@@ -1,6 +1,6 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime, timedelta
@@ -1064,9 +1064,9 @@ async def download_recording(
     """
     Download a recording file.
     Supports format=mp4 for MP4 remux download.
+    支援分塊傳輸：裝置分批傳送大檔案，後端邊收邊串流給瀏覽器。
     """
     import asyncio
-    import base64
 
     user = await get_current_user(db, token)
     if not user:
@@ -1102,30 +1102,65 @@ async def download_recording(
     logger.info(f"[recordings] Download request for {filename} (format={format}) from {device_id}")
     await manager.send_to_device(device_id, proxy_request)
 
-    # MP4 需要更多等待時間
-    max_attempts = 240 if format == "mp4" else 120
+    dl_filename = filename.replace(".ts", ".mp4") if format == "mp4" else filename
+    media_type = "video/mp4" if format == "mp4" else "video/mp2t"
 
-    for attempt in range(max_attempts):
+    # 等待裝置回應（可能是普通回應或分塊 metadata）
+    max_wait = 240 if format == "mp4" else 120
+
+    for attempt in range(max_wait):
         resp_data = await redis_client.get(f"playback:response:{rid}")
         if resp_data:
-            await redis_client.delete(f"playback:response:{rid}")
-
             if "error" in resp_data:
+                await redis_client.delete(f"playback:response:{rid}")
                 raise HTTPException(status_code=502, detail=resp_data["error"])
 
-            body_b64 = resp_data.get("body_b64", "")
-            body = base64.b64decode(body_b64) if body_b64 else b""
+            if resp_data.get("chunked"):
+                # 分塊傳輸：使用 StreamingResponse 邊收邊傳
+                total_chunks = resp_data["total_chunks"]
+                total_size = resp_data.get("total_size", 0)
+                logger.info(f"[download] Streaming {total_chunks} chunks ({total_size} bytes) for {filename}")
 
-            dl_filename = filename.replace(".ts", ".mp4") if format == "mp4" else filename
-            media_type = "video/mp4" if format == "mp4" else "video/mp2t"
+                async def generate_chunks():
+                    for i in range(total_chunks):
+                        # 等待每個 chunk 到達（每個 chunk 最多等 60 秒）
+                        for _ in range(120):
+                            chunk_b64 = await redis_client.get(f"playback:chunk:{rid}:{i}")
+                            if chunk_b64:
+                                await redis_client.delete(f"playback:chunk:{rid}:{i}")
+                                yield base64.b64decode(chunk_b64)
+                                break
+                            await asyncio.sleep(0.5)
+                        else:
+                            logger.error(f"[download] Timeout waiting for chunk {i}/{total_chunks}")
+                            break
+                    # 清除 metadata
+                    await redis_client.delete(f"playback:response:{rid}")
 
-            return Response(
-                content=body,
-                media_type=media_type,
-                headers={
-                    "Content-Disposition": f"attachment; filename={dl_filename}"
+                resp_headers = {
+                    "Content-Disposition": f"attachment; filename={dl_filename}",
                 }
-            )
+                if total_size:
+                    resp_headers["Content-Length"] = str(total_size)
+
+                return StreamingResponse(
+                    generate_chunks(),
+                    media_type=media_type,
+                    headers=resp_headers
+                )
+            else:
+                # 普通回應（小檔案）
+                await redis_client.delete(f"playback:response:{rid}")
+                body_b64 = resp_data.get("body_b64", "")
+                body = base64.b64decode(body_b64) if body_b64 else b""
+
+                return Response(
+                    content=body,
+                    media_type=media_type,
+                    headers={
+                        "Content-Disposition": f"attachment; filename={dl_filename}"
+                    }
+                )
         await asyncio.sleep(0.5)
 
     raise HTTPException(status_code=504, detail="Download timeout")
