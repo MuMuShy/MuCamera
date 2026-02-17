@@ -347,24 +347,22 @@ async def get_stream_playlist(
 
     segment_index = 0
 
-    for i, rec in enumerate(filtered_recordings):
+    # 並行產生所有檔案的 HLS 分段
+    async def ensure_hls(rec):
+        """確保單一錄影檔的 HLS 已產生"""
         source_path = Path(rec_dir) / rec["filename"]
         if not source_path.exists():
             logger.warning(f"[local_api] 檔案不存在：{rec['filename']}")
-            continue
+            return False
 
-        # 為每個來源檔案產生 HLS 分段
         file_hash = hashlib.md5(rec["filename"].encode()).hexdigest()[:8]
         file_cache_dir = Path(HLS_CACHE_DIR) / file_hash
         file_cache_dir.mkdir(parents=True, exist_ok=True)
-
         file_playlist_path = file_cache_dir / "playlist.m3u8"
 
-        # 如果該檔案的 HLS 尚未產生，則產生
         if not file_playlist_path.exists() or source_path.stat().st_mtime > file_playlist_path.stat().st_mtime:
             logger.info(f"[local_api] 產生 HLS：{rec['filename']}")
 
-            # 清除舊分段
             for old_file in file_cache_dir.glob("*.ts"):
                 old_file.unlink()
 
@@ -391,11 +389,29 @@ async def get_stream_playlist(
 
                 if process.returncode != 0:
                     logger.error(f"[local_api] ffmpeg 失敗：{rec['filename']}")
-                    continue
-
+                    return False
             except Exception as e:
                 logger.error(f"[local_api] HLS 產生失敗：{e}")
-                continue
+                return False
+
+        return True
+
+    # 最多同時 3 個 ffmpeg（避免 Pi 記憶體不足）
+    sem = asyncio.Semaphore(3)
+
+    async def ensure_hls_limited(rec):
+        async with sem:
+            return await ensure_hls(rec)
+
+    await asyncio.gather(*[ensure_hls_limited(rec) for rec in filtered_recordings])
+
+    for i, rec in enumerate(filtered_recordings):
+        file_hash = hashlib.md5(rec["filename"].encode()).hexdigest()[:8]
+        file_cache_dir = Path(HLS_CACHE_DIR) / file_hash
+        file_playlist_path = file_cache_dir / "playlist.m3u8"
+
+        if not file_playlist_path.exists():
+            continue
 
         # 讀取該檔案的播放清單並合併
         try:
