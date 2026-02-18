@@ -1,10 +1,12 @@
 /**
  * 水下監視系統 Web Client - go2rtc WebRTC Streaming
  *
- * New architecture using go2rtc WebRTC:
- * - Direct WebRTC to go2rtc through Backend proxy
- * - No signaling needed, go2rtc handles it via HTTP
- * - Simple and reliable
+ * Dual-mode architecture:
+ * - P2P mode: Direct WebRTC to go2rtc through Backend proxy (default)
+ * - LiveKit mode: Connect to LiveKit SFU for multi-viewer support
+ *
+ * Mode is determined by backend config (LIVEKIT_ENABLED).
+ * WebSocket is always used for PTZ, GPS, device status.
  */
 
 // Prevent multiple loading issues
@@ -46,6 +48,8 @@ if (typeof window.MuMuCamera === 'undefined') {
 
     let ws = null;
     let pc = null;
+    let lkRoom = null;              // LiveKit Room instance
+    let streamingMode = 'p2p';      // 'p2p' or 'livekit'
     let currentDeviceId = null;
     let currentCamera = 'cam';       // 'cam' or 'cam2'
     let currentQuality = 'sd';       // 'sd' (sub-stream) or 'hd' (main stream)
@@ -59,7 +63,24 @@ if (typeof window.MuMuCamera === 'undefined') {
     let isReconnecting = false;
 
     /**
-     * Low-latency playback monitor
+     * Detect streaming mode from backend
+     */
+    async function detectStreamingMode() {
+        try {
+            const resp = await fetch(`${API_BASE}/api/config/streaming-mode`);
+            if (resp.ok) {
+                const data = await resp.json();
+                streamingMode = data.mode || 'p2p';
+                console.log(`[mode] Streaming mode: ${streamingMode}`);
+            }
+        } catch (e) {
+            console.warn('[mode] Failed to detect streaming mode, defaulting to P2P:', e);
+            streamingMode = 'p2p';
+        }
+    }
+
+    /**
+     * Low-latency playback monitor (P2P mode only)
      */
     function startLatencyMonitor(video) {
         if (latencyMonitorId) cancelAnimationFrame(latencyMonitorId);
@@ -86,7 +107,7 @@ if (typeof window.MuMuCamera === 'undefined') {
     }
 
     /**
-     * Stream health monitor - detects frozen video and auto-reconnects
+     * Stream health monitor - detects frozen video and auto-reconnects (P2P mode)
      */
     function startHealthCheck() {
         stopHealthCheck();
@@ -154,7 +175,7 @@ if (typeof window.MuMuCamera === 'undefined') {
     }
 
     /**
-     * Reconnect the WebRTC stream without closing WebSocket
+     * Reconnect the WebRTC stream without closing WebSocket (P2P mode)
      */
     async function reconnectStream(retries = 3) {
         if (isReconnecting || !currentDeviceId) return;
@@ -191,10 +212,7 @@ if (typeof window.MuMuCamera === 'undefined') {
     }
 
     /**
-     * Initialize WebRTC connection using go2rtc
-     */
-    /**
-     * Initialize WebRTC connection using go2rtc
+     * Initialize streaming connection (detects mode and starts accordingly)
      */
     window.initializeWebRTC = async function (deviceId) {
         currentDeviceId = deviceId;
@@ -202,7 +220,10 @@ if (typeof window.MuMuCamera === 'undefined') {
         try {
             updateConnectionStatus('連線中...');
 
-            // Connect to WebSocket for status updates
+            // Detect streaming mode from backend
+            await detectStreamingMode();
+
+            // Connect to WebSocket for status updates (always needed for PTZ, GPS etc.)
             ws = new WebSocket(`${WS_BASE}/ws/viewer`);
             const token = localStorage.getItem('token');
 
@@ -214,8 +235,12 @@ if (typeof window.MuMuCamera === 'undefined') {
                     payload: { token: token }
                 });
 
-                // Start WebRTC connection to go2rtc
-                await startWebRTC(deviceId);
+                // Start streaming based on mode
+                if (streamingMode === 'livekit') {
+                    await startLiveKit(deviceId);
+                } else {
+                    await startWebRTC(deviceId);
+                }
             };
 
             ws.onmessage = async (event) => {
@@ -241,7 +266,99 @@ if (typeof window.MuMuCamera === 'undefined') {
     };
 
     /**
-     * Start WebRTC connection to go2rtc through proxy
+     * Start LiveKit SFU connection
+     */
+    async function startLiveKit(deviceId) {
+        try {
+            console.log('[livekit] Starting LiveKit connection');
+            updateConnectionStatus('連線 LiveKit...');
+
+            // Get LiveKit token from backend
+            const token = localStorage.getItem('token');
+            const resp = await fetch(`${API_BASE}/api/devices/${deviceId}/livekit-token?token=${token}`);
+            if (!resp.ok) {
+                throw new Error(`Failed to get LiveKit token: ${resp.status}`);
+            }
+            const data = await resp.json();
+            const lkToken = data.token;
+            const lkUrl = data.url;
+
+            // Check if LiveKit client SDK is loaded
+            if (typeof LivekitClient === 'undefined') {
+                throw new Error('LiveKit SDK not loaded');
+            }
+
+            // Create LiveKit Room
+            lkRoom = new LivekitClient.Room({
+                adaptiveStream: true,
+                dynacast: true,
+            });
+
+            const videoElement = document.getElementById('remoteVideo');
+            videoElement.autoplay = true;
+            videoElement.playsInline = true;
+            videoElement.muted = true;
+
+            // Handle track subscription
+            lkRoom.on(LivekitClient.RoomEvent.TrackSubscribed, (track, publication, participant) => {
+                console.log(`[livekit] Track subscribed: ${track.kind} from ${participant.identity}`);
+                if (track.kind === 'video') {
+                    track.attach(videoElement);
+                    updateConnectionStatus('監控中');
+                    isStreamingActive = true;
+                    startGPSPolling();
+                } else if (track.kind === 'audio') {
+                    // Attach audio to a hidden element
+                    const audioEl = track.attach();
+                    audioEl.style.display = 'none';
+                    document.body.appendChild(audioEl);
+                }
+            });
+
+            lkRoom.on(LivekitClient.RoomEvent.TrackUnsubscribed, (track) => {
+                console.log(`[livekit] Track unsubscribed: ${track.kind}`);
+                track.detach();
+            });
+
+            lkRoom.on(LivekitClient.RoomEvent.Disconnected, (reason) => {
+                console.log('[livekit] Disconnected:', reason);
+                updateConnectionStatus('LiveKit 已斷線');
+            });
+
+            lkRoom.on(LivekitClient.RoomEvent.Reconnecting, () => {
+                console.log('[livekit] Reconnecting...');
+                updateConnectionStatus('重新連線中...');
+            });
+
+            lkRoom.on(LivekitClient.RoomEvent.Reconnected, () => {
+                console.log('[livekit] Reconnected');
+                updateConnectionStatus('監控中');
+            });
+
+            // Connect to LiveKit server
+            await lkRoom.connect(lkUrl, lkToken);
+            console.log('[livekit] Connected to room:', lkRoom.name);
+            updateConnectionStatus('已連線 (LiveKit)');
+
+        } catch (error) {
+            console.error('[livekit] Error:', error);
+            updateConnectionStatus('LiveKit 連線失敗');
+            showToast('LiveKit 連線失敗: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * Stop LiveKit connection
+     */
+    function stopLiveKit() {
+        if (lkRoom) {
+            lkRoom.disconnect();
+            lkRoom = null;
+        }
+    }
+
+    /**
+     * Start WebRTC connection to go2rtc through proxy (P2P mode)
      */
     async function startWebRTC(deviceId) {
         try {
@@ -553,10 +670,14 @@ if (typeof window.MuMuCamera === 'undefined') {
             videoElement.srcObject = null;
         }
 
+        // Clean up P2P connection
         if (pc) {
             pc.close();
             pc = null;
         }
+
+        // Clean up LiveKit connection
+        stopLiveKit();
 
         if (ws) {
             ws.close();
@@ -609,6 +730,34 @@ if (typeof window.MuMuCamera === 'undefined') {
     async function applyStreamSwitch() {
         if (!currentDeviceId || !isStreamingActive) return;
 
+        if (streamingMode === 'livekit') {
+            // In LiveKit mode, tell device to switch RTSP source via backend API
+            updateConnectionStatus('切換串流中...');
+            try {
+                const token = localStorage.getItem('token');
+                const resp = await fetch(
+                    `${API_BASE}/api/devices/${currentDeviceId}/livekit-switch-stream?token=${token}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ stream_src: currentStreamSrc })
+                    }
+                );
+                if (resp.ok) {
+                    console.log(`[livekit] Switch stream to ${currentStreamSrc} requested`);
+                    updateConnectionStatus('監控中');
+                } else {
+                    console.error('[livekit] Switch failed:', resp.status);
+                    updateConnectionStatus('切換失敗');
+                }
+            } catch (e) {
+                console.error('[livekit] Switch error:', e);
+                updateConnectionStatus('切換失敗');
+            }
+            return;
+        }
+
+        // P2P mode: close and reconnect with new stream source
         stopLatencyMonitor();
         stopHealthCheck();
         if (pc) {

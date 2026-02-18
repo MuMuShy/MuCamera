@@ -58,6 +58,12 @@ services:
       TURN_SECRET: ${TURN_SECRET:-mumucam_turn_secret_key}
       JWT_SECRET: ${JWT_SECRET:-mumucam_jwt_secret_key_change_in_production}
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost,http://localhost:8080}
+      LIVEKIT_ENABLED: ${LIVEKIT_ENABLED:-false}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-devsecret}
+      LIVEKIT_URL: ${LIVEKIT_URL:-ws://livekit:7880}
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
+      LIVEKIT_RTMP_URL: ${LIVEKIT_RTMP_URL:-rtmp://livekit-ingress:1935/live}
     ports:
       - "8000:8000"
     depends_on:
@@ -149,6 +155,45 @@ services:
       - mumu-network
     restart: unless-stopped
     command: python agent.py
+
+  # LiveKit SFU Server (optional, use profile to enable)
+  # Usage: docker-compose --profile livekit up -d
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: mumu-livekit
+    profiles:
+      - livekit
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    volumes:
+      - ./livekit/livekit.yaml:/etc/livekit.yaml
+    command: --config /etc/livekit.yaml
+    networks:
+      - mumu-network
+    restart: unless-stopped
+
+  # LiveKit Ingress (RTMP → LiveKit)
+  livekit-ingress:
+    image: livekit/ingress:latest
+    container_name: mumu-livekit-ingress
+    profiles:
+      - livekit
+    ports:
+      - "1935:1935"
+    environment:
+      INGRESS_CONFIG_BODY: |
+        api_key: ${LIVEKIT_API_KEY:-devkey}
+        api_secret: ${LIVEKIT_API_SECRET:-devsecret}
+        ws_url: ws://livekit:7880
+        logging:
+          level: info
+    depends_on:
+      - livekit
+    networks:
+      - mumu-network
+    restart: unless-stopped
 
 networks:
   mumu-network:

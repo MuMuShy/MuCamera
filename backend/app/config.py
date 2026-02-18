@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     PAIRING_CODE_LENGTH: int = 6
     PAIRING_CODE_TTL: int = 300  # 5 minutes
 
+    # LiveKit SFU (optional, disabled by default)
+    LIVEKIT_ENABLED: bool = False
+    LIVEKIT_API_KEY: str = "devkey"
+    LIVEKIT_API_SECRET: str = "devsecret"
+    LIVEKIT_URL: str = "ws://livekit:7880"
+    LIVEKIT_PUBLIC_URL: str = "ws://localhost:7880"
+    LIVEKIT_RTMP_URL: str = "rtmp://livekit-ingress:1935/live"
+
     class Config:
         env_file = ".env"
         case_sensitive = True

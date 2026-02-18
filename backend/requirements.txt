@@ -11,3 +11,4 @@ bcrypt==3.2.2
 python-multipart==0.0.6
 pydantic==2.5.3
 pydantic-settings==2.1.0
+livekit-api>=0.7.0

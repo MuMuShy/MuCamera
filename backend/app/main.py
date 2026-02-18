@@ -1440,6 +1440,76 @@ async def get_device_stream_segment(
     raise HTTPException(status_code=504, detail="Stream segment timeout")
 
 
+# ============ LiveKit SFU Endpoints ============
+
+@app.get("/api/config/streaming-mode")
+async def get_streaming_mode():
+    """Return current streaming mode so the web client knows which path to use."""
+    return {"mode": "livekit" if settings.LIVEKIT_ENABLED else "p2p"}
+
+
+@app.get("/api/devices/{device_id}/livekit-token")
+async def get_livekit_token(
+    device_id: str,
+    token: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get a LiveKit viewer token for a device. Only available when LIVEKIT_ENABLED=true."""
+    if not settings.LIVEKIT_ENABLED:
+        raise HTTPException(status_code=404, detail="LiveKit not enabled")
+
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    await verify_device_ownership(db, user, device_id)
+
+    from app.livekit_service import generate_viewer_token
+
+    lk_token = generate_viewer_token(device_id, str(user.id))
+    return {
+        "token": lk_token,
+        "url": settings.LIVEKIT_PUBLIC_URL,
+        "room": f"device-{device_id}",
+    }
+
+
+class SwitchStreamRequest(BaseModel):
+    stream_src: str  # e.g. cam, cam_sub, cam2, cam2_sub
+
+
+@app.post("/api/devices/{device_id}/livekit-switch-stream")
+async def livekit_switch_stream(
+    device_id: str,
+    req: SwitchStreamRequest,
+    token: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Notify the device to switch its RTMP push to a different RTSP source.
+    This affects all viewers since there is a single ingress per device.
+    """
+    if not settings.LIVEKIT_ENABLED:
+        raise HTTPException(status_code=404, detail="LiveKit not enabled")
+
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    await verify_device_ownership(db, user, device_id)
+
+    if not manager.is_device_online(device_id):
+        raise HTTPException(status_code=503, detail="Device offline")
+
+    await manager.send_to_device(device_id, {
+        "type": "livekit_switch_stream",
+        "ts": datetime.utcnow().isoformat(),
+        "payload": {
+            "stream_src": req.stream_src
+        }
+    })
+
+    return {"success": True, "message": f"Switching to {req.stream_src}"}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

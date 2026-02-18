@@ -35,7 +35,120 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-AGENT_VERSION = "2.0.0-go2rtc"
+AGENT_VERSION = "2.1.0-go2rtc"
+
+
+class FFmpegRTMPPusher:
+    """Manages FFmpeg subprocess that pushes RTSP stream to LiveKit via RTMP."""
+
+    def __init__(self, go2rtc_http: str = "http://127.0.0.1:8554"):
+        self._process: Optional[asyncio.subprocess.Process] = None
+        self._monitor_task: Optional[asyncio.Task] = None
+        self._rtmp_url: Optional[str] = None
+        self._stream_key: Optional[str] = None
+        self._stream_src: str = "cam_sub"
+        self._running = False
+        # Derive RTSP base from go2rtc HTTP (go2rtc serves RTSP on port 8554)
+        self._rtsp_base = "rtsp://127.0.0.1:8554"
+
+    @property
+    def rtsp_url(self) -> str:
+        return f"{self._rtsp_base}/{self._stream_src}"
+
+    @property
+    def full_rtmp_url(self) -> str:
+        if self._rtmp_url and self._stream_key:
+            return f"{self._rtmp_url}/{self._stream_key}"
+        return ""
+
+    async def start(self, rtmp_url: str, stream_key: str, stream_src: str = "cam_sub"):
+        """Start FFmpeg RTMP push."""
+        self._rtmp_url = rtmp_url
+        self._stream_key = stream_key
+        self._stream_src = stream_src
+        self._running = True
+        await self._start_ffmpeg()
+        self._monitor_task = asyncio.create_task(self._crash_monitor())
+
+    async def stop(self):
+        """Stop FFmpeg and crash monitor."""
+        self._running = False
+        if self._monitor_task and not self._monitor_task.done():
+            self._monitor_task.cancel()
+            try:
+                await self._monitor_task
+            except asyncio.CancelledError:
+                pass
+            self._monitor_task = None
+        await self._kill_ffmpeg()
+
+    async def switch_stream(self, stream_src: str):
+        """Switch to a different RTSP source (restarts FFmpeg)."""
+        if stream_src == self._stream_src:
+            return
+        logger.info(f"[ffmpeg] Switching stream: {self._stream_src} -> {stream_src}")
+        self._stream_src = stream_src
+        await self._kill_ffmpeg()
+        if self._running:
+            await self._start_ffmpeg()
+
+    async def _start_ffmpeg(self):
+        """Launch FFmpeg subprocess."""
+        if not self.full_rtmp_url:
+            logger.error("[ffmpeg] No RTMP URL configured")
+            return
+
+        cmd = [
+            "ffmpeg",
+            "-rtsp_transport", "tcp",
+            "-i", self.rtsp_url,
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-f", "flv",
+            self.full_rtmp_url,
+        ]
+        logger.info(f"[ffmpeg] Starting: {' '.join(cmd)}")
+        try:
+            self._process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            logger.info(f"[ffmpeg] Started PID={self._process.pid}")
+        except FileNotFoundError:
+            logger.error("[ffmpeg] ffmpeg binary not found - is it installed?")
+        except Exception as e:
+            logger.error(f"[ffmpeg] Failed to start: {e}")
+
+    async def _kill_ffmpeg(self):
+        """Terminate FFmpeg subprocess."""
+        if self._process and self._process.returncode is None:
+            logger.info(f"[ffmpeg] Stopping PID={self._process.pid}")
+            try:
+                self._process.terminate()
+                await asyncio.wait_for(self._process.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                self._process.kill()
+                await self._process.wait()
+            except Exception as e:
+                logger.error(f"[ffmpeg] Error stopping: {e}")
+            self._process = None
+
+    async def _crash_monitor(self):
+        """Monitor FFmpeg and restart on crash."""
+        try:
+            while self._running:
+                if self._process:
+                    retcode = await self._process.wait()
+                    if self._running:
+                        logger.warning(f"[ffmpeg] Process exited with code {retcode}, restarting in 3s...")
+                        await asyncio.sleep(3)
+                        if self._running:
+                            await self._start_ffmpeg()
+                else:
+                    await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            logger.debug("[ffmpeg] Crash monitor cancelled")
 
 
 class ConnectionState(Enum):
@@ -109,6 +222,9 @@ class Go2RTCProxyAgent:
 
         # System monitor
         self._system_monitor = SystemMonitor()
+
+        # LiveKit RTMP pusher (activated on server command)
+        self._rtmp_pusher = FFmpegRTMPPusher(go2rtc_http)
 
         logger.info(f"[go2rtc] Agent initialized: {device_id}, go2rtc: {go2rtc_http}")
 
@@ -373,6 +489,22 @@ class Go2RTCProxyAgent:
             if rid:
                 self._pending_proxy_tasks[rid] = task
                 task.add_done_callback(lambda t: self._pending_proxy_tasks.pop(rid, None))
+
+        elif msg_type == "livekit_ingress":
+            # Server tells us to push RTMP to LiveKit
+            rtmp_url = payload.get("rtmp_url")
+            stream_key = payload.get("stream_key")
+            if rtmp_url and stream_key:
+                logger.info(f"[livekit] Received ingress info, starting RTMP push")
+                await self._rtmp_pusher.start(rtmp_url, stream_key, "cam_sub")
+            else:
+                logger.error("[livekit] Missing rtmp_url or stream_key in livekit_ingress")
+
+        elif msg_type == "livekit_switch_stream":
+            # Server tells us to switch the RTSP source for the RTMP push
+            stream_src = payload.get("stream_src", "cam_sub")
+            logger.info(f"[livekit] Switch stream request: {stream_src}")
+            await self._rtmp_pusher.switch_stream(stream_src)
 
         # Legacy WebRTC signaling messages (ignored in proxy mode)
         elif msg_type in ["watch_request", "signal_offer", "signal_answer", "signal_ice", "watch_ended"]:
@@ -846,6 +978,11 @@ class Go2RTCProxyAgent:
         logger.info("[ws] Handling disconnect...")
 
         self._stop_background_tasks()
+
+        # Stop RTMP push on disconnect
+        if self._rtmp_pusher._running:
+            await self._rtmp_pusher.stop()
+            logger.info("[livekit] RTMP push stopped on disconnect")
 
         for rid, task in list(self._pending_proxy_tasks.items()):
             if not task.done():

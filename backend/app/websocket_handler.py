@@ -12,6 +12,17 @@ from app.turn_credentials import get_ice_servers
 from app.config import settings
 import uuid
 
+# Lazy import for LiveKit service (only when enabled)
+_livekit_service = None
+
+
+def _get_livekit_service():
+    global _livekit_service
+    if _livekit_service is None and settings.LIVEKIT_ENABLED:
+        from app import livekit_service
+        _livekit_service = livekit_service
+    return _livekit_service
+
 logger = logging.getLogger("mumucam")
 
 
@@ -67,6 +78,19 @@ class ConnectionManager:
             del self.device_connections[device_id]
         if device_id in self.device_heartbeats:
             del self.device_heartbeats[device_id]
+
+        # LiveKit: clean up ingress on device disconnect
+        if settings.LIVEKIT_ENABLED:
+            lk = _get_livekit_service()
+            if lk:
+                try:
+                    ingress_id = await redis_client.get(f"device:livekit_ingress:{device_id}")
+                    if ingress_id:
+                        await lk.delete_ingress(ingress_id)
+                        await redis_client.delete(f"device:livekit_ingress:{device_id}")
+                        logger.info(f"[livekit] Cleaned up ingress for {device_id}")
+                except Exception as e:
+                    logger.error(f"[livekit] Error cleaning up ingress for {device_id}: {e}")
 
         # Update device offline status in DB
         await db.execute(
@@ -221,6 +245,30 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
             }
         }
         await manager.send_to_device(device_id, response)
+
+        # LiveKit: create ingress and notify device to start RTMP push
+        if settings.LIVEKIT_ENABLED:
+            lk = _get_livekit_service()
+            if lk:
+                try:
+                    ingress_info = await lk.create_ingress(device_id)
+                    # Store ingress_id in Redis for cleanup on disconnect
+                    await redis_client.set(
+                        f"device:livekit_ingress:{device_id}",
+                        ingress_info["ingress_id"]
+                    )
+                    # Send RTMP URL to device so it can start FFmpeg push
+                    await manager.send_to_device(device_id, {
+                        "type": "livekit_ingress",
+                        "ts": datetime.utcnow().isoformat(),
+                        "payload": {
+                            "rtmp_url": ingress_info["rtmp_url"],
+                            "stream_key": ingress_info["stream_key"],
+                        }
+                    })
+                    logger.info(f"[livekit] Sent ingress info to device {device_id}")
+                except Exception as e:
+                    logger.error(f"[livekit] Failed to setup ingress for {device_id}: {e}")
 
     elif msg_type == "heartbeat":
         # Update heartbeat
@@ -465,6 +513,30 @@ async def handle_viewer_message(user_id: str, message: dict, db: AsyncSession):
             "started_at": datetime.utcnow().isoformat()
         })
 
+        # LiveKit mode: return token + URL instead of ICE servers
+        if settings.LIVEKIT_ENABLED:
+            lk = _get_livekit_service()
+            if lk:
+                try:
+                    lk_token = lk.generate_viewer_token(device_id, user_id)
+                    await manager.send_to_viewer(user_id, {
+                        "type": "watch_ready",
+                        "request_id": request_id,
+                        "ts": datetime.utcnow().isoformat(),
+                        "payload": {
+                            "session_id": session_id,
+                            "mode": "livekit",
+                            "livekit_token": lk_token,
+                            "livekit_url": settings.LIVEKIT_PUBLIC_URL,
+                        }
+                    })
+                    logger.info(f"[livekit] Sent viewer token for {device_id} to user {user_id}")
+                    return
+                except Exception as e:
+                    logger.error(f"[livekit] Failed to generate viewer token: {e}")
+                    # Fall through to P2P mode as fallback
+
+        # P2P mode: return ICE servers
         # Get ICE servers for viewer (use public host for browser access)
         ice_servers = get_ice_servers(f"viewer_{user_id}_{session_id}", use_public_host=True)
 
@@ -475,6 +547,7 @@ async def handle_viewer_message(user_id: str, message: dict, db: AsyncSession):
             "ts": datetime.utcnow().isoformat(),
             "payload": {
                 "session_id": session_id,
+                "mode": "p2p",
                 "ice_servers": ice_servers
             }
         })
