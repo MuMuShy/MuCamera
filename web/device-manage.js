@@ -331,7 +331,16 @@
         const cmd = pendingCommand;
         pendingCommand = null;
         document.getElementById('confirmDialog').classList.remove('active');
-        if (!cmd || !currentDeviceId) return;
+        if (!cmd) return;
+
+        // Handle streaming mode switch
+        if (cmd.startsWith('__switch_streaming_mode__')) {
+            const targetMode = cmd.replace('__switch_streaming_mode__', '');
+            await switchStreamingMode(targetMode);
+            return;
+        }
+
+        if (!currentDeviceId) return;
         await executeCommand(cmd);
     });
 
@@ -470,7 +479,84 @@
         serverHealthTimer = setInterval(fetchServerHealth, SERVER_HEALTH_INTERVAL);
     }
 
+    // -------- Streaming Mode Toggle --------
+    let currentStreamingMode = null;
+    const streamingModeLabel = document.getElementById('streamingModeLabel');
+    const btnToggleStreamingMode = document.getElementById('btnToggleStreamingMode');
+
+    async function fetchStreamingMode() {
+        try {
+            const res = await fetch(`${API_BASE}/api/config/streaming-mode`);
+            const data = await res.json();
+            currentStreamingMode = data.mode;
+            updateStreamingModeLabel();
+        } catch (e) {
+            console.error('Failed to fetch streaming mode:', e);
+            if (streamingModeLabel) streamingModeLabel.textContent = '無法取得';
+        }
+    }
+
+    function updateStreamingModeLabel() {
+        if (!streamingModeLabel) return;
+        if (currentStreamingMode === 'livekit') {
+            streamingModeLabel.textContent = '目前：LiveKit (SFU) — 點擊切換至 P2P';
+        } else {
+            streamingModeLabel.textContent = '目前：P2P — 點擊切換至 LiveKit (SFU)';
+        }
+    }
+
+    if (btnToggleStreamingMode) {
+        btnToggleStreamingMode.addEventListener('click', () => {
+            if (!currentStreamingMode) return;
+            const targetMode = currentStreamingMode === 'livekit' ? 'p2p' : 'livekit';
+            const targetLabel = targetMode === 'livekit' ? 'LiveKit (SFU)' : 'P2P';
+            const warnMsg = targetMode === 'livekit'
+                ? '切換至 LiveKit 模式後，所有裝置將開始 RTMP 推流。當前觀看的用戶需要重新整理頁面。'
+                : '切換至 P2P 模式後，所有裝置將停止 RTMP 推流。當前觀看的用戶需要重新整理頁面。';
+
+            // Use a special pendingCommand value for streaming mode switch
+            pendingCommand = `__switch_streaming_mode__${targetMode}`;
+            document.getElementById('confirmTitle').textContent = '切換串流模式';
+            document.getElementById('confirmMsg').textContent = warnMsg;
+            document.getElementById('confirmDialog').classList.add('active');
+
+            const okBtn = document.getElementById('confirmOk');
+            okBtn.className = 'btn btn-primary';
+            okBtn.textContent = `切換至 ${targetLabel}`;
+        });
+    }
+
+    async function switchStreamingMode(targetMode) {
+        try {
+            if (streamingModeLabel) streamingModeLabel.textContent = '切換中...';
+            const res = await fetch(`${API_BASE}/api/config/streaming-mode?token=${token}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: targetMode })
+            });
+            if (res.status === 401) {
+                window.location.href = 'login.html';
+                return;
+            }
+            const data = await res.json();
+            if (data.success) {
+                currentStreamingMode = data.mode;
+                updateStreamingModeLabel();
+                const label = data.mode === 'livekit' ? 'LiveKit (SFU)' : 'P2P';
+                showToast(`已切換至 ${label} 模式`, 'success');
+            } else {
+                showToast(data.detail || '切換失敗', 'error');
+                fetchStreamingMode();
+            }
+        } catch (e) {
+            console.error('Failed to switch streaming mode:', e);
+            showToast('無法連線伺服器', 'error');
+            fetchStreamingMode();
+        }
+    }
+
     // -------- Init --------
     loadDevices();
     startServerHealthRefresh();
+    fetchStreamingMode();
 })();

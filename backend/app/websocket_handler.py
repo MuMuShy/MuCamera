@@ -80,17 +80,18 @@ class ConnectionManager:
             del self.device_heartbeats[device_id]
 
         # LiveKit: clean up ingress on device disconnect
-        if settings.LIVEKIT_ENABLED:
-            lk = _get_livekit_service()
-            if lk:
-                try:
-                    ingress_id = await redis_client.get(f"device:livekit_ingress:{device_id}")
-                    if ingress_id:
-                        await lk.delete_ingress(ingress_id)
-                        await redis_client.delete(f"device:livekit_ingress:{device_id}")
-                        logger.info(f"[livekit] Cleaned up ingress for {device_id}")
-                except Exception as e:
-                    logger.error(f"[livekit] Error cleaning up ingress for {device_id}: {e}")
+        # Check Redis for existing ingress regardless of static config
+        # (mode may have been switched dynamically via POST /api/config/streaming-mode)
+        try:
+            ingress_id = await redis_client.get(f"device:livekit_ingress:{device_id}")
+            if ingress_id:
+                lk = _get_livekit_service()
+                if lk:
+                    await lk.delete_ingress(ingress_id)
+                await redis_client.delete(f"device:livekit_ingress:{device_id}")
+                logger.info(f"[livekit] Cleaned up ingress for {device_id}")
+        except Exception as e:
+            logger.error(f"[livekit] Error cleaning up ingress for {device_id}: {e}")
 
         # Update device offline status in DB
         await db.execute(

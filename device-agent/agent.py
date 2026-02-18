@@ -511,6 +511,14 @@ class Go2RTCProxyAgent:
             else:
                 logger.error("[livekit] Missing rtmp_url or stream_key in livekit_ingress")
 
+        elif msg_type == "stop_rtmp":
+            # Server tells us to stop RTMP push (switching to P2P mode)
+            if self._rtmp_pusher._running:
+                logger.info("[livekit] Received stop_rtmp, stopping RTMP push")
+                await self._rtmp_pusher.stop()
+            else:
+                logger.debug("[livekit] Received stop_rtmp but RTMP not running")
+
         elif msg_type == "livekit_switch_stream":
             # Server tells us to switch the RTSP source for the RTMP push
             stream_src = payload.get("stream_src", "cam_sub")

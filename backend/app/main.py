@@ -404,7 +404,10 @@ async def device_websocket(websocket: WebSocket, db: AsyncSession = Depends(get_
         })
 
         # LiveKit: create ingress and notify device to start RTMP push
-        if settings.LIVEKIT_ENABLED:
+        # Check Redis override first, fall back to static config
+        _redis_mode = await redis_client.get("config:streaming_mode")
+        _livekit_active = _redis_mode == "livekit" if _redis_mode in ("p2p", "livekit") else settings.LIVEKIT_ENABLED
+        if _livekit_active:
             from app.websocket_handler import _get_livekit_service
             lk = _get_livekit_service()
             if lk:
@@ -1473,7 +1476,87 @@ async def get_device_stream_segment(
 @app.get("/api/config/streaming-mode")
 async def get_streaming_mode():
     """Return current streaming mode so the web client knows which path to use."""
+    # Priority: Redis override > static env var
+    redis_mode = await redis_client.get("config:streaming_mode")
+    if redis_mode in ("p2p", "livekit"):
+        return {"mode": redis_mode}
     return {"mode": "livekit" if settings.LIVEKIT_ENABLED else "p2p"}
+
+
+class StreamingModeRequest(BaseModel):
+    mode: str  # "p2p" or "livekit"
+
+
+@app.post("/api/config/streaming-mode")
+async def set_streaming_mode(
+    req: StreamingModeRequest,
+    token: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Switch streaming mode between P2P and LiveKit (requires login)."""
+    user = await get_current_user(db, token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    if req.mode not in ("p2p", "livekit"):
+        raise HTTPException(status_code=400, detail="mode must be 'p2p' or 'livekit'")
+
+    # Store in Redis (persists across restarts if Redis has persistence)
+    await redis_client.set("config:streaming_mode", req.mode)
+    logger.info(f"[config] Streaming mode switched to '{req.mode}' by user {user.username}")
+
+    # Apply to all online devices
+    online_devices = manager.get_online_devices()
+
+    if req.mode == "livekit":
+        # Switch to LiveKit: create ingress for each online device
+        from app.websocket_handler import _get_livekit_service
+        lk = _get_livekit_service()
+        if lk:
+            for device_id in online_devices:
+                try:
+                    ingress_info = await lk.create_ingress(device_id)
+                    await redis_client.set(
+                        f"device:livekit_ingress:{device_id}",
+                        ingress_info["ingress_id"]
+                    )
+                    await manager.send_to_device(device_id, {
+                        "type": "livekit_ingress",
+                        "ts": datetime.utcnow().isoformat(),
+                        "payload": {
+                            "rtmp_url": ingress_info["rtmp_url"],
+                            "stream_key": ingress_info["stream_key"],
+                        }
+                    })
+                    logger.info(f"[config] Created ingress for {device_id}")
+                except Exception as e:
+                    logger.error(f"[config] Failed to create ingress for {device_id}: {e}")
+        else:
+            logger.warning("[config] LiveKit service not available")
+
+    elif req.mode == "p2p":
+        # Switch to P2P: stop RTMP on all devices, delete ingresses
+        from app.websocket_handler import _get_livekit_service
+        lk = _get_livekit_service()
+        for device_id in online_devices:
+            # Tell device to stop RTMP push
+            await manager.send_to_device(device_id, {
+                "type": "stop_rtmp",
+                "ts": datetime.utcnow().isoformat(),
+                "payload": {}
+            })
+            # Clean up ingress
+            if lk:
+                try:
+                    ingress_id = await redis_client.get(f"device:livekit_ingress:{device_id}")
+                    if ingress_id:
+                        await lk.delete_ingress(ingress_id)
+                        await redis_client.delete(f"device:livekit_ingress:{device_id}")
+                        logger.info(f"[config] Deleted ingress for {device_id}")
+                except Exception as e:
+                    logger.error(f"[config] Failed to delete ingress for {device_id}: {e}")
+
+    return {"success": True, "mode": req.mode}
 
 
 @app.get("/api/devices/{device_id}/livekit-token")
