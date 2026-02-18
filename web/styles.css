@@ -620,6 +620,18 @@ body {
     box-shadow: 0 4px 16px var(--danger-glow);
 }
 
+.btn-warning {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warning-color);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.btn-warning:hover {
+    background: var(--warning-color);
+    color: white;
+    box-shadow: 0 4px 16px rgba(245, 158, 11, 0.3);
+}
+
 .btn-sm {
     padding: 8px 16px;
     font-size: 0.8rem;

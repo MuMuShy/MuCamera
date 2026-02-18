@@ -1,0 +1,4 @@
+mumucam ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart go2rtc
+mumucam ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart mumucam-recorder
+mumucam ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart mumucam-recorder-cam2
+mumucam ALL=(ALL) NOPASSWD: /sbin/reboot

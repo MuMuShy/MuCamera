@@ -21,6 +21,7 @@ import random
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Set
 from enum import Enum
+import socket
 import aiohttp
 import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
@@ -225,6 +226,12 @@ class Go2RTCProxyAgent:
 
         # LiveKit RTMP pusher (activated on server command)
         self._rtmp_pusher = FFmpegRTMPPusher(go2rtc_http)
+
+        # RTSP watchdog state (per-camera)
+        self._watchdog_fail_counts: Dict[str, int] = {}
+        self._watchdog_last_reboot: Dict[str, datetime] = {}
+        self._watchdog_recovering: Dict[str, bool] = {}
+        self._watchdog_task: Optional[asyncio.Task] = None
 
         logger.info(f"[go2rtc] Agent initialized: {device_id}, go2rtc: {go2rtc_http}")
 
@@ -636,6 +643,19 @@ class Go2RTCProxyAgent:
                 )
                 await proc.wait()
 
+            elif command == "reboot_camera":
+                source = payload.get("source", "cam")
+                controller = self.onvif_controllers.get(source)
+                if not controller:
+                    await self._send_control_response(rid, False, f"ONVIF not configured for {source}")
+                    return
+                await self._send_control_response(rid, True, f"Rebooting camera {source}...")
+                result = await controller.reboot()
+                if result.get("success"):
+                    logger.info(f"[control] Camera {source} reboot command sent")
+                else:
+                    logger.error(f"[control] Camera {source} reboot failed: {result.get('error')}")
+
             else:
                 await self._send_control_response(rid, False, f"Unknown command: {command}")
 
@@ -651,6 +671,161 @@ class Go2RTCProxyAgent:
             "payload": {
                 "rid": rid,
                 "success": success,
+                "message": message
+            }
+        })
+
+    # -------- RTSP Watchdog --------
+
+    def _get_camera_rtsp_target(self, source: str) -> Optional[tuple]:
+        """Get (ip, port) for a camera source's RTSP endpoint"""
+        controller = self.onvif_controllers.get(source)
+        if not controller:
+            return None
+        return (controller.config.ip, 554)
+
+    async def _tcp_probe(self, host: str, port: int, timeout: float = 5.0) -> bool:
+        """TCP connect probe to check if a port is reachable"""
+        try:
+            loop = asyncio.get_event_loop()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            result = await loop.run_in_executor(None, sock.connect_ex, (host, port))
+            sock.close()
+            return result == 0
+        except Exception:
+            return False
+
+    async def _rtsp_watchdog(self):
+        """Background task: periodically probe camera RTSP ports and trigger recovery"""
+        PROBE_INTERVAL = 30
+        FAIL_THRESHOLD = 3
+        COOLDOWN_SECONDS = 300  # 5 minutes
+
+        try:
+            # Wait for initial startup before starting watchdog
+            await asyncio.sleep(60)
+            logger.info("[watchdog] RTSP watchdog started")
+
+            while self.running:
+                for source, controller in self.onvif_controllers.items():
+                    target = self._get_camera_rtsp_target(source)
+                    if not target:
+                        continue
+
+                    host, port = target
+
+                    # Skip if currently recovering
+                    if self._watchdog_recovering.get(source, False):
+                        continue
+
+                    reachable = await self._tcp_probe(host, port)
+
+                    if reachable:
+                        if self._watchdog_fail_counts.get(source, 0) > 0:
+                            logger.info(f"[watchdog] {source} ({host}:{port}) recovered, resetting fail count")
+                        self._watchdog_fail_counts[source] = 0
+                    else:
+                        count = self._watchdog_fail_counts.get(source, 0) + 1
+                        self._watchdog_fail_counts[source] = count
+                        logger.warning(f"[watchdog] {source} ({host}:{port}) probe failed ({count}/{FAIL_THRESHOLD})")
+
+                        if count >= FAIL_THRESHOLD:
+                            # Check cooldown
+                            last_reboot = self._watchdog_last_reboot.get(source)
+                            if last_reboot and (datetime.utcnow() - last_reboot).total_seconds() < COOLDOWN_SECONDS:
+                                remaining = COOLDOWN_SECONDS - (datetime.utcnow() - last_reboot).total_seconds()
+                                logger.warning(f"[watchdog] {source} cooldown active, {remaining:.0f}s remaining")
+                                continue
+
+                            logger.error(f"[watchdog] {source} RTSP unreachable for {count * PROBE_INTERVAL}s, starting recovery")
+                            self._watchdog_fail_counts[source] = 0
+                            asyncio.create_task(self._recovery_sequence(source))
+
+                await asyncio.sleep(PROBE_INTERVAL)
+
+        except asyncio.CancelledError:
+            logger.debug("[watchdog] RTSP watchdog cancelled")
+        except Exception as e:
+            logger.error(f"[watchdog] RTSP watchdog error: {e}", exc_info=True)
+
+    async def _recovery_sequence(self, source: str):
+        """Recovery sequence: ONVIF reboot → wait → restart go2rtc"""
+        self._watchdog_recovering[source] = True
+        self._watchdog_last_reboot[source] = datetime.utcnow()
+
+        controller = self.onvif_controllers.get(source)
+        if not controller:
+            self._watchdog_recovering[source] = False
+            return
+
+        try:
+            # Step 1: ONVIF reboot
+            logger.info(f"[watchdog] Step 1: Rebooting camera {source} via ONVIF")
+            result = await controller.reboot()
+            if not result.get("success"):
+                logger.error(f"[watchdog] ONVIF reboot failed for {source}: {result.get('error')}")
+                self._watchdog_recovering[source] = False
+                return
+
+            # Step 2: Poll is_reachable, max 120 seconds
+            logger.info(f"[watchdog] Step 2: Waiting for camera {source} to come back...")
+            came_back = False
+            for i in range(24):  # 24 * 5s = 120s
+                await asyncio.sleep(5)
+                if await controller.is_reachable():
+                    logger.info(f"[watchdog] Camera {source} is reachable after {(i + 1) * 5}s")
+                    came_back = True
+                    break
+
+            if not came_back:
+                logger.error(f"[watchdog] Camera {source} did not come back within 120s")
+                self._watchdog_recovering[source] = False
+                await self._send_watchdog_event(source, "recovery_failed", "Camera did not come back after reboot")
+                return
+
+            # Step 3: Wait 10s then restart go2rtc
+            logger.info(f"[watchdog] Step 3: Waiting 10s before restarting go2rtc")
+            await asyncio.sleep(10)
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", "restart", "go2rtc",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await proc.wait()
+            logger.info(f"[watchdog] go2rtc restart exit code: {proc.returncode}")
+
+            # Step 4: Wait 10s and verify stream
+            await asyncio.sleep(10)
+            target = self._get_camera_rtsp_target(source)
+            if target:
+                stream_ok = await self._tcp_probe(target[0], target[1])
+                logger.info(f"[watchdog] Stream verification for {source}: {'OK' if stream_ok else 'FAILED'}")
+            else:
+                stream_ok = False
+
+            # Step 5: Notify backend
+            status = "recovery_success" if stream_ok else "recovery_partial"
+            message = f"Camera {source} rebooted and go2rtc restarted"
+            if not stream_ok:
+                message += " (stream verification failed)"
+            await self._send_watchdog_event(source, status, message)
+            logger.info(f"[watchdog] Recovery complete for {source}: {status}")
+
+        except Exception as e:
+            logger.error(f"[watchdog] Recovery error for {source}: {e}", exc_info=True)
+            await self._send_watchdog_event(source, "recovery_error", str(e))
+        finally:
+            self._watchdog_recovering[source] = False
+
+    async def _send_watchdog_event(self, source: str, status: str, message: str):
+        """Send watchdog event notification to backend"""
+        await self._send_message_safe({
+            "type": "watchdog_event",
+            "ts": datetime.utcnow().isoformat(),
+            "payload": {
+                "source": source,
+                "status": status,
                 "message": message
             }
         })
@@ -1035,6 +1210,11 @@ class Go2RTCProxyAgent:
             self._time_sync_task = asyncio.create_task(self._time_sync_loop())
             logger.info(f"[time-sync] 已啟動，每 {self.time_sync_interval} 秒同步一次")
 
+        # 啟動 RTSP watchdog（如有 ONVIF controller）
+        if self.onvif_controllers:
+            self._watchdog_task = asyncio.create_task(self._rtsp_watchdog())
+            logger.info(f"[watchdog] RTSP watchdog 已啟動，監控 {list(self.onvif_controllers.keys())}")
+
         logger.info("Registering device with backend...")
         registration_success = await self.register_device()
 
@@ -1069,6 +1249,13 @@ class Go2RTCProxyAgent:
             self._time_sync_task.cancel()
             try:
                 await self._time_sync_task
+            except asyncio.CancelledError:
+                pass
+
+        if self._watchdog_task and not self._watchdog_task.done():
+            self._watchdog_task.cancel()
+            try:
+                await self._watchdog_task
             except asyncio.CancelledError:
                 pass
 

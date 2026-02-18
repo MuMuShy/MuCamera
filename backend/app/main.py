@@ -633,7 +633,8 @@ async def get_device_sysinfo(
 
 
 class ControlCommandRequest(BaseModel):
-    command: str  # restart_agent, restart_go2rtc, reboot, restart_stream
+    command: str  # restart_agent, restart_go2rtc, reboot, restart_stream, reboot_camera
+    source: Optional[str] = None  # camera source for reboot_camera (e.g. "cam", "cam2")
 
 
 @app.post("/api/devices/{device_id}/control")
@@ -652,19 +653,23 @@ async def send_control_command(
     if not manager.is_device_online(device_id):
         raise HTTPException(status_code=503, detail="Device offline")
 
-    allowed_commands = {"restart_agent", "restart_go2rtc", "reboot", "restart_stream"}
+    allowed_commands = {"restart_agent", "restart_go2rtc", "reboot", "restart_stream", "reboot_camera"}
     if request_body.command not in allowed_commands:
         raise HTTPException(status_code=400, detail=f"Invalid command. Allowed: {', '.join(allowed_commands)}")
 
     rid = str(uuid.uuid4())
 
+    payload = {
+        "rid": rid,
+        "command": request_body.command
+    }
+    if request_body.source:
+        payload["source"] = request_body.source
+
     control_message = {
         "type": "control_command",
         "ts": datetime.utcnow().isoformat(),
-        "payload": {
-            "rid": rid,
-            "command": request_body.command
-        }
+        "payload": payload
     }
 
     logger.info(f"[control] Sending {request_body.command} to device {device_id}, rid={rid}")
@@ -678,8 +683,8 @@ async def send_control_command(
             return resp_data
         await asyncio.sleep(0.5)
 
-    # For restart_agent and reboot, timeout is expected since agent disconnects
-    if request_body.command in ("restart_agent", "reboot"):
+    # For restart_agent, reboot, and reboot_camera, timeout is expected
+    if request_body.command in ("restart_agent", "reboot", "reboot_camera"):
         return {"success": True, "message": f"Command '{request_body.command}' sent (device will disconnect)"}
 
     return {"success": True, "message": "Command sent (no ack)"}

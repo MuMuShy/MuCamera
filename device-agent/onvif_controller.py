@@ -424,6 +424,67 @@ class ONVIFController:
 
         return {"success": True, "capabilities": caps}
 
+    async def reboot(self) -> Dict[str, Any]:
+        """
+        Reboot the camera via ONVIF SystemReboot.
+        Resets _initialized to clear stale state after reboot.
+        """
+        if not await self.initialize():
+            return {"success": False, "error": "ONVIF not initialized"}
+
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, self._reboot_sync)
+            if result.get("success"):
+                async with self._lock:
+                    self._initialized = False
+                    self._camera = None
+                    self._media = None
+                    self._ptz = None
+                    self._imaging = None
+            return result
+        except Exception as e:
+            logger.error(f"[onvif] Reboot error: {e}")
+            return {"success": False, "error": str(e)}
+
+    def _reboot_sync(self) -> Dict[str, Any]:
+        """Synchronous reboot operation"""
+        try:
+            logger.info(f"[onvif] Sending SystemReboot to {self.config.ip}...")
+            self._camera.devicemgmt.SystemReboot()
+            logger.info(f"[onvif] SystemReboot sent to {self.config.ip}")
+            return {"success": True, "message": f"Reboot command sent to {self.config.ip}"}
+        except Exception as e:
+            logger.error(f"[onvif] SystemReboot error: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def is_reachable(self) -> bool:
+        """
+        Lightweight probe to check if camera is reachable.
+        Uses GetSystemDateAndTime which doesn't require auth on most cameras.
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, self._is_reachable_sync)
+        except Exception:
+            return False
+
+    def _is_reachable_sync(self) -> bool:
+        """Synchronous reachability check"""
+        try:
+            from onvif import ONVIFCamera
+            cam = ONVIFCamera(
+                self.config.ip,
+                self.config.port,
+                self.config.username,
+                self.config.password,
+                wsdl_dir=self.config.wsdl_dir
+            )
+            cam.devicemgmt.GetSystemDateAndTime()
+            return True
+        except Exception:
+            return False
+
     async def sync_time(self) -> Dict[str, Any]:
         """
         Sync camera time with local system (UTC).

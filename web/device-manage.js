@@ -287,6 +287,7 @@
         restart_agent: { title: '重啟 Agent', msg: '確定要重啟 Agent？Agent 會短暫斷線後重新連線。' },
         restart_go2rtc: { title: '重啟 go2rtc', msg: '確定要重啟 go2rtc？串流將會暫時中斷。' },
         restart_stream: { title: '重啟串流', msg: '確定要重啟串流？當前觀看的用戶會暫時斷線。' },
+        reboot_camera: { title: '重啟攝影機', msg: '確定要重啟 IP 攝影機？攝影機將重新開機，串流會中斷約 1-2 分鐘。' },
         reboot: { title: '重新開機', msg: '確定要重新啟動樹莓派？裝置將會離線數分鐘。' }
     };
 
@@ -312,6 +313,9 @@
         if (command === 'reboot') {
             okBtn.className = 'btn btn-danger';
             okBtn.textContent = '確認重開機';
+        } else if (command === 'reboot_camera') {
+            okBtn.className = 'btn btn-warning';
+            okBtn.textContent = '確認重啟攝影機';
         } else {
             okBtn.className = 'btn btn-primary';
             okBtn.textContent = '確認';
@@ -333,10 +337,14 @@
 
     async function executeCommand(command) {
         try {
+            const payload = { command };
+            if (command === 'reboot_camera') {
+                payload.source = 'cam';
+            }
             const res = await fetch(`${API_BASE}/api/devices/${currentDeviceId}/control?token=${token}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ command })
+                body: JSON.stringify(payload)
             });
 
             if (res.status === 401) {
