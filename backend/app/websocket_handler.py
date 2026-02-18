@@ -247,11 +247,14 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
         await manager.send_to_device(device_id, response)
 
         # LiveKit: create ingress and notify device to start RTMP push
+        print(f"[DEBUG] LiveKit enabled={settings.LIVEKIT_ENABLED}, device={device_id}", flush=True)
         if settings.LIVEKIT_ENABLED:
             lk = _get_livekit_service()
+            print(f"[DEBUG] livekit_service loaded: {lk is not None}", flush=True)
             if lk:
                 try:
                     ingress_info = await lk.create_ingress(device_id)
+                    print(f"[DEBUG] ingress created: {ingress_info}", flush=True)
                     # Store ingress_id in Redis for cleanup on disconnect
                     await redis_client.set(
                         f"device:livekit_ingress:{device_id}",
@@ -266,9 +269,9 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
                             "stream_key": ingress_info["stream_key"],
                         }
                     })
-                    logger.info(f"[livekit] Sent ingress info to device {device_id}")
+                    print(f"[DEBUG] livekit_ingress sent to device {device_id}", flush=True)
                 except Exception as e:
-                    logger.error(f"[livekit] Failed to setup ingress for {device_id}: {e}")
+                    print(f"[DEBUG] LiveKit ingress ERROR: {type(e).__name__}: {e}", flush=True)
 
     elif msg_type == "heartbeat":
         # Update heartbeat
