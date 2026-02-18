@@ -403,6 +403,29 @@ async def device_websocket(websocket: WebSocket, db: AsyncSession = Depends(get_
             }
         })
 
+        # LiveKit: create ingress and notify device to start RTMP push
+        if settings.LIVEKIT_ENABLED:
+            from app.websocket_handler import _get_livekit_service
+            lk = _get_livekit_service()
+            if lk:
+                try:
+                    ingress_info = await lk.create_ingress(device_id)
+                    await redis_client.set(
+                        f"device:livekit_ingress:{device_id}",
+                        ingress_info["ingress_id"]
+                    )
+                    await websocket.send_json({
+                        "type": "livekit_ingress",
+                        "ts": datetime.utcnow().isoformat(),
+                        "payload": {
+                            "rtmp_url": ingress_info["rtmp_url"],
+                            "stream_key": ingress_info["stream_key"],
+                        }
+                    })
+                    print(f"[livekit] Sent ingress to {device_id}: {ingress_info['rtmp_url']}", flush=True)
+                except Exception as e:
+                    print(f"[livekit] Failed to create ingress for {device_id}: {e}", flush=True)
+
         # Handle messages
         while True:
             data = await websocket.receive_json()

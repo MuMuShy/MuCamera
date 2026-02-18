@@ -246,32 +246,8 @@ async def handle_device_message(device_id: str, message: dict, db: AsyncSession)
         }
         await manager.send_to_device(device_id, response)
 
-        # LiveKit: create ingress and notify device to start RTMP push
-        print(f"[DEBUG] LiveKit enabled={settings.LIVEKIT_ENABLED}, device={device_id}", flush=True)
-        if settings.LIVEKIT_ENABLED:
-            lk = _get_livekit_service()
-            print(f"[DEBUG] livekit_service loaded: {lk is not None}", flush=True)
-            if lk:
-                try:
-                    ingress_info = await lk.create_ingress(device_id)
-                    print(f"[DEBUG] ingress created: {ingress_info}", flush=True)
-                    # Store ingress_id in Redis for cleanup on disconnect
-                    await redis_client.set(
-                        f"device:livekit_ingress:{device_id}",
-                        ingress_info["ingress_id"]
-                    )
-                    # Send RTMP URL to device so it can start FFmpeg push
-                    await manager.send_to_device(device_id, {
-                        "type": "livekit_ingress",
-                        "ts": datetime.utcnow().isoformat(),
-                        "payload": {
-                            "rtmp_url": ingress_info["rtmp_url"],
-                            "stream_key": ingress_info["stream_key"],
-                        }
-                    })
-                    print(f"[DEBUG] livekit_ingress sent to device {device_id}", flush=True)
-                except Exception as e:
-                    print(f"[DEBUG] LiveKit ingress ERROR: {type(e).__name__}: {e}", flush=True)
+        # Note: LiveKit ingress creation is handled in main.py after hello_ack,
+        # since the hello message is consumed there before the message loop.
 
     elif msg_type == "heartbeat":
         # Update heartbeat
