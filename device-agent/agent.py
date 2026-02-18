@@ -101,11 +101,15 @@ class FFmpegRTMPPusher:
 
         cmd = [
             "ffmpeg",
+            "-fflags", "nobuffer",
+            "-flags", "low_delay",
             "-rtsp_transport", "tcp",
             "-i", self.rtsp_url,
             "-c:v", "copy",
             "-c:a", "aac",
+            "-b:a", "128k",
             "-f", "flv",
+            "-flvflags", "no_duration_filesize",
             self.full_rtmp_url,
         ]
         logger.info(f"[ffmpeg] Starting: {' '.join(cmd)}")
