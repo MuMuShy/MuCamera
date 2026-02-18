@@ -18,10 +18,21 @@ _livekit_service = None
 
 def _get_livekit_service():
     global _livekit_service
-    if _livekit_service is None and settings.LIVEKIT_ENABLED:
-        from app import livekit_service
-        _livekit_service = livekit_service
+    if _livekit_service is None:
+        try:
+            from app import livekit_service
+            _livekit_service = livekit_service
+        except Exception:
+            pass
     return _livekit_service
+
+
+async def _is_livekit_mode() -> bool:
+    """Check if current streaming mode is LiveKit (Redis override > env var)."""
+    redis_mode = await redis_client.get("config:streaming_mode")
+    if redis_mode in ("p2p", "livekit"):
+        return redis_mode == "livekit"
+    return settings.LIVEKIT_ENABLED
 
 logger = logging.getLogger("mumucam")
 
@@ -494,7 +505,7 @@ async def handle_viewer_message(user_id: str, message: dict, db: AsyncSession):
         })
 
         # LiveKit mode: return token + URL instead of ICE servers
-        if settings.LIVEKIT_ENABLED:
+        if await _is_livekit_mode():
             lk = _get_livekit_service()
             if lk:
                 try:

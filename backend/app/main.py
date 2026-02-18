@@ -404,10 +404,8 @@ async def device_websocket(websocket: WebSocket, db: AsyncSession = Depends(get_
         })
 
         # LiveKit: create ingress and notify device to start RTMP push
-        # Check Redis override first, fall back to static config
-        _redis_mode = await redis_client.get("config:streaming_mode")
-        _livekit_active = _redis_mode == "livekit" if _redis_mode in ("p2p", "livekit") else settings.LIVEKIT_ENABLED
-        if _livekit_active:
+        from app.websocket_handler import _is_livekit_mode
+        if await _is_livekit_mode():
             from app.websocket_handler import _get_livekit_service
             lk = _get_livekit_service()
             if lk:
@@ -1565,8 +1563,9 @@ async def get_livekit_token(
     token: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get a LiveKit viewer token for a device. Only available when LIVEKIT_ENABLED=true."""
-    if not settings.LIVEKIT_ENABLED:
+    """Get a LiveKit viewer token for a device."""
+    from app.websocket_handler import _is_livekit_mode
+    if not await _is_livekit_mode():
         raise HTTPException(status_code=404, detail="LiveKit not enabled")
 
     user = await get_current_user(db, token)
@@ -1599,7 +1598,8 @@ async def livekit_switch_stream(
     Notify the device to switch its RTMP push to a different RTSP source.
     This affects all viewers since there is a single ingress per device.
     """
-    if not settings.LIVEKIT_ENABLED:
+    from app.websocket_handler import _is_livekit_mode
+    if not await _is_livekit_mode():
         raise HTTPException(status_code=404, detail="LiveKit not enabled")
 
     user = await get_current_user(db, token)
