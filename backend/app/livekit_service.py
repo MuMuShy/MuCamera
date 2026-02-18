@@ -6,6 +6,7 @@ Only active when LIVEKIT_ENABLED=true.
 """
 
 import logging
+from datetime import timedelta
 from typing import Optional
 from livekit.api import LiveKitAPI, AccessToken, VideoGrants
 from livekit.api.ingress_service import CreateIngressRequest
@@ -47,7 +48,7 @@ def generate_viewer_token(device_id: str, user_id: str) -> str:
             can_subscribe=True,
             can_publish=False,
         ))
-        .with_ttl(86400)
+        .with_ttl(timedelta(hours=24))
     )
     return token.to_jwt()
 
