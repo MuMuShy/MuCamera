@@ -140,9 +140,9 @@ if (typeof window.MuMuCamera === 'undefined') {
                 if (currentFrames === lastFramesReceived && checkCount > 2) {
                     stallCount++;
 
-                    // Never received any frame = connection setup issue
+                    // Never received any frame = wait longer for first keyframe
                     // Mid-stream freeze = more tolerant (4G jitter)
-                    const threshold = (currentFrames === 0) ? 3 : 5;
+                    const threshold = (currentFrames === 0) ? 5 : 5;
                     const label = (currentFrames === 0) ? '無畫面' : '畫面凍結';
 
                     if (stallCount >= threshold - 1) {

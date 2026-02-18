@@ -12,8 +12,8 @@ ExecStart=/opt/mumucam/venv/bin/python /opt/mumucam/device-agent/cleaner.py
 StandardOutput=journal
 StandardError=journal
 
-# 清理相關環境變數（58GB 磁碟，保留 ~23GB 給系統）
-Environment="RECORDING_DIR=/opt/mumucam/recordings/cam"
-Environment="CLEANUP_MAX_GIB=35"
-Environment="CLEANUP_TARGET_GIB=30"
+# 多目錄清理（cam + cam2 合計管控，57GB 磁碟保留 ~12GB 給系統）
+Environment="RECORDING_DIRS=/mnt/usb/recordings/cam,/mnt/usb/recordings/cam2"
+Environment="CLEANUP_MAX_GIB=45"
+Environment="CLEANUP_TARGET_GIB=38"
 Environment="CLEANUP_RETENTION_DAYS=7"

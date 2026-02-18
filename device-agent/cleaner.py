@@ -179,30 +179,146 @@ def cleanup_recordings(
     return stats
 
 
+def cleanup_multi_recordings(
+    recording_dirs: List[str],
+    max_gib: float = 50.0,
+    target_gib: float = 40.0,
+    retention_days: int = 7,
+    dry_run: bool = False
+) -> CleanupStats:
+    """
+    跨多目錄統一清理。將所有目錄的檔案混合排序，
+    按全域容量上限刪除最舊檔案。
+
+    參數：
+        recording_dirs: 多個錄影目錄路徑
+        max_gib: 所有目錄合計容量上限（GiB）
+        target_gib: 目標容量（GiB）
+        retention_days: 保留天數
+        dry_run: 若為 True，僅報告不實際刪除
+    """
+    stats = CleanupStats()
+
+    # 收集所有目錄的檔案
+    all_files: List[Tuple[Path, datetime, int]] = []
+    for rec_dir in recording_dirs:
+        path = Path(rec_dir)
+        if not path.exists():
+            logger.info(f"[cleaner] 目錄不存在，跳過：{path}")
+            continue
+        dir_files = get_recording_files(path)
+        logger.info(f"[cleaner] {path.name}: {len(dir_files)} 個檔案，{sum(f[2] for f in dir_files) / (1024**3):.2f} GiB")
+        all_files.extend(dir_files)
+
+    if not all_files:
+        logger.info("[cleaner] 所有目錄都沒有找到錄影檔案")
+        return stats
+
+    # 全域排序（最舊的在前）
+    all_files.sort(key=lambda x: x[1])
+
+    stats.total_files = len(all_files)
+    stats.total_size_bytes = sum(f[2] for f in all_files)
+    current_size_gib = stats.total_size_bytes / (1024**3)
+    logger.info(f"[cleaner] 合計 {stats.total_files} 個檔案，總大小：{current_size_gib:.2f} GiB")
+
+    max_bytes = max_gib * (1024**3)
+    target_bytes = target_gib * (1024**3)
+
+    files_to_delete: List[Tuple[Path, str]] = []
+
+    # 條件 A：容量超過 — 刪除最舊的直到目標容量
+    if stats.total_size_bytes > max_bytes:
+        logger.info(f"[cleaner] 容量超過限制（{current_size_gib:.2f} > {max_gib} GiB），依容量清理...")
+        stats.reason = "capacity"
+
+        current_size = stats.total_size_bytes
+        for file_path, file_ts, file_size in all_files:
+            if current_size <= target_bytes:
+                break
+            files_to_delete.append((file_path, "capacity"))
+            current_size -= file_size
+
+    # 條件 B：容量未超過 — 刪除超過保留天數的檔案
+    else:
+        cutoff_date = datetime.now() - timedelta(days=retention_days)
+        logger.info(f"[cleaner] 檢查保留期限（早於 {cutoff_date.date()} 的檔案）...")
+
+        for file_path, file_ts, file_size in all_files:
+            if file_ts < cutoff_date:
+                files_to_delete.append((file_path, "retention"))
+
+        if files_to_delete:
+            stats.reason = "retention"
+        else:
+            stats.reason = "none"
+
+    # 刪除
+    if not files_to_delete:
+        logger.info("[cleaner] 沒有需要刪除的檔案")
+        return stats
+
+    logger.info(f"[cleaner] {'將刪除' if dry_run else '正在刪除'} {len(files_to_delete)} 個檔案...")
+
+    for file_path, reason in files_to_delete:
+        try:
+            file_size = file_path.stat().st_size
+            if not dry_run:
+                file_path.unlink()
+                logger.info(f"[cleaner] 已刪除：{file_path.parent.name}/{file_path.name}（{file_size / (1024**2):.1f} MiB）[{reason}]")
+            else:
+                logger.info(f"[cleaner] 將刪除：{file_path.parent.name}/{file_path.name}（{file_size / (1024**2):.1f} MiB）[{reason}]")
+            stats.deleted_files += 1
+            stats.deleted_size_bytes += file_size
+        except Exception as e:
+            logger.error(f"[cleaner] 刪除 {file_path} 失敗：{e}")
+
+    deleted_gib = stats.deleted_size_bytes / (1024**3)
+    logger.info(f"[cleaner] {'將釋放' if dry_run else '已釋放'}：{deleted_gib:.2f} GiB")
+
+    return stats
+
+
 def run_cleanup_from_env(dry_run: bool = False) -> CleanupStats:
     """
     使用環境變數設定執行清理。
 
     環境變數：
-        RECORDING_DIR: 錄影目錄（預設：/opt/mumucam/recordings/cam）
-        CLEANUP_MAX_GIB: 容量上限（預設：50）
+        RECORDING_DIRS: 逗號分隔的多個錄影目錄（優先使用）
+        RECORDING_DIR: 單一錄影目錄（向後相容）
+        CLEANUP_MAX_GIB: 所有目錄合計容量上限（預設：50）
         CLEANUP_TARGET_GIB: 目標容量（預設：40）
         CLEANUP_RETENTION_DAYS: 保留天數（預設：7）
     """
-    recording_dir = os.getenv("RECORDING_DIR", "/opt/mumucam/recordings/cam")
+    # 多目錄支援
+    recording_dirs_str = os.getenv("RECORDING_DIRS", "")
+    if recording_dirs_str:
+        recording_dirs = [d.strip() for d in recording_dirs_str.split(",") if d.strip()]
+    else:
+        recording_dirs = [os.getenv("RECORDING_DIR", "/mnt/usb/recordings/cam")]
+
     max_gib = float(os.getenv("CLEANUP_MAX_GIB", "50"))
     target_gib = float(os.getenv("CLEANUP_TARGET_GIB", "40"))
     retention_days = int(os.getenv("CLEANUP_RETENTION_DAYS", "7"))
 
-    logger.info(f"[cleaner] 設定：dir={recording_dir}, max={max_gib}GiB, target={target_gib}GiB, retention={retention_days}天")
+    logger.info(f"[cleaner] 設定：dirs={recording_dirs}, max={max_gib}GiB, target={target_gib}GiB, retention={retention_days}天")
 
-    return cleanup_recordings(
-        recording_dir=recording_dir,
-        max_gib=max_gib,
-        target_gib=target_gib,
-        retention_days=retention_days,
-        dry_run=dry_run
-    )
+    if len(recording_dirs) == 1:
+        return cleanup_recordings(
+            recording_dir=recording_dirs[0],
+            max_gib=max_gib,
+            target_gib=target_gib,
+            retention_days=retention_days,
+            dry_run=dry_run
+        )
+    else:
+        return cleanup_multi_recordings(
+            recording_dirs=recording_dirs,
+            max_gib=max_gib,
+            target_gib=target_gib,
+            retention_days=retention_days,
+            dry_run=dry_run
+        )
 
 
 # 允許作為獨立程式執行
