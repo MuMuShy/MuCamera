@@ -4,6 +4,9 @@ rtc:
   port_range_start: 50000
   port_range_end: 60000
   use_external_ip: true
+redis:
+  address: redis:6379
+  password: mumucam_redis_secret
 keys:
   devkey: devsecret
 logging:
