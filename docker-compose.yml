@@ -197,6 +197,7 @@ services:
         redis:
           address: redis:6379
           password: ${REDIS_PASSWORD:-mumucam_redis_secret}
+        rtmp_port: 1935
         logging:
           level: info
     depends_on:

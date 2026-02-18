@@ -72,10 +72,10 @@ async def create_ingress(device_id: str) -> dict:
             )
         )
 
-        rtmp_url = ingress.url
+        rtmp_url = ingress.url or settings.LIVEKIT_RTMP_URL
         stream_key = ingress.stream_key
 
-        logger.info(f"[livekit] Created ingress for {device_id}: id={ingress.ingress_id}")
+        logger.info(f"[livekit] Created ingress for {device_id}: id={ingress.ingress_id}, rtmp_url={rtmp_url}")
         return {
             "ingress_id": ingress.ingress_id,
             "rtmp_url": rtmp_url,
