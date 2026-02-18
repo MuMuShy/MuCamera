@@ -503,7 +503,7 @@ class Go2RTCProxyAgent:
             stream_key = payload.get("stream_key")
             if rtmp_url and stream_key:
                 logger.info(f"[livekit] Received ingress info, starting RTMP push")
-                await self._rtmp_pusher.start(rtmp_url, stream_key, "cam_sub")
+                await self._rtmp_pusher.start(rtmp_url, stream_key, "cam")
             else:
                 logger.error("[livekit] Missing rtmp_url or stream_key in livekit_ingress")
 
