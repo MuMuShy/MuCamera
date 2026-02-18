@@ -650,11 +650,8 @@ class Go2RTCProxyAgent:
                     await self._send_control_response(rid, False, f"ONVIF not configured for {source}")
                     return
                 await self._send_control_response(rid, True, f"Rebooting camera {source}...")
-                result = await controller.reboot()
-                if result.get("success"):
-                    logger.info(f"[control] Camera {source} reboot command sent")
-                else:
-                    logger.error(f"[control] Camera {source} reboot failed: {result.get('error')}")
+                # 觸發完整 recovery（reboot → 等回來 → 同步時間 → 重啟 go2rtc）
+                asyncio.create_task(self._recovery_sequence(source))
 
             else:
                 await self._send_control_response(rid, False, f"Unknown command: {command}")
@@ -784,8 +781,19 @@ class Go2RTCProxyAgent:
                 await self._send_watchdog_event(source, "recovery_failed", "Camera did not come back after reboot")
                 return
 
-            # Step 3: Wait 10s then restart go2rtc
-            logger.info(f"[watchdog] Step 3: Waiting 10s before restarting go2rtc")
+            # Step 3: Sync time (camera reboot resets clock)
+            logger.info(f"[watchdog] Step 3: Syncing time to camera {source}")
+            try:
+                sync_result = await controller.sync_time()
+                if sync_result.get("success"):
+                    logger.info(f"[watchdog] Time sync OK for {source}")
+                else:
+                    logger.warning(f"[watchdog] Time sync failed for {source}: {sync_result.get('error')}")
+            except Exception as e:
+                logger.warning(f"[watchdog] Time sync error for {source}: {e}")
+
+            # Step 4: Wait 10s then restart go2rtc
+            logger.info(f"[watchdog] Step 4: Waiting 10s before restarting go2rtc")
             await asyncio.sleep(10)
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", "restart", "go2rtc",
@@ -795,7 +803,7 @@ class Go2RTCProxyAgent:
             await proc.wait()
             logger.info(f"[watchdog] go2rtc restart exit code: {proc.returncode}")
 
-            # Step 4: Wait 10s and verify stream
+            # Step 5: Wait 10s and verify stream
             await asyncio.sleep(10)
             target = self._get_camera_rtsp_target(source)
             if target:
@@ -804,7 +812,7 @@ class Go2RTCProxyAgent:
             else:
                 stream_ok = False
 
-            # Step 5: Notify backend
+            # Step 6: Notify backend
             status = "recovery_success" if stream_ok else "recovery_partial"
             message = f"Camera {source} rebooted and go2rtc restarted"
             if not stream_ok:
