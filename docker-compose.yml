@@ -42,6 +42,7 @@ services:
     network_mode: host
     volumes:
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf
+      - ./coturn/certs:/etc/coturn/certs:ro
     command: -c /etc/coturn/turnserver.conf
 
   backend:
@@ -56,6 +57,8 @@ services:
       TURN_PUBLIC_HOST: ${TURN_PUBLIC_HOST:-localhost}
       TURN_PORT: ${TURN_PORT:-3478}
       TURN_SECRET: ${TURN_SECRET:-mumucam_turn_secret_key}
+      TURN_TLS_HOST: ${TURN_TLS_HOST:-}
+      TURN_TLS_PORT: ${TURN_TLS_PORT:-443}
       JWT_SECRET: ${JWT_SECRET:-mumucam_jwt_secret_key_change_in_production}
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost,http://localhost:8080}
       LIVEKIT_ENABLED: ${LIVEKIT_ENABLED:-false}

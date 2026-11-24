@@ -41,12 +41,17 @@ def generate_turn_credentials(username: str, use_public_host: bool = False) -> D
     # Choose hostname based on client type
     turn_host = settings.TURN_PUBLIC_HOST if use_public_host else settings.TURN_HOST
 
+    urls = [
+        f"turn:{turn_host}:{settings.TURN_PORT}?transport=udp",
+        f"turn:{turn_host}:{settings.TURN_PORT}?transport=tcp",
+    ]
+    # TURN over TLS on 443 for browsers behind strict firewalls (only 80/443 allowed)
+    if use_public_host and settings.TURN_TLS_HOST:
+        urls.append(f"turns:{settings.TURN_TLS_HOST}:{settings.TURN_TLS_PORT}?transport=tcp")
+
     # Return ICE server configuration
     return {
-        "urls": [
-            f"turn:{turn_host}:{settings.TURN_PORT}?transport=udp",
-            f"turn:{turn_host}:{settings.TURN_PORT}?transport=tcp",
-        ],
+        "urls": urls,
         "username": turn_username,
         "credential": turn_password,
         "credentialType": "password"

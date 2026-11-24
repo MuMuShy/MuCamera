@@ -133,3 +133,6 @@ credentials/
 *.bak
 *.bak.
 *.bak-*
+
+# coturn TLS certs (copied by certbot deploy hook)
+coturn/certs/

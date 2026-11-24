@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     TURN_PORT: int = 3478
     TURN_SECRET: str = "mumucam_turn_secret_key"
     TURN_TTL: int = 86400  # 24 hours
+    # Optional TURN over TLS for browsers on networks that only allow 443 (e.g. government networks).
+    # Hostname must match coturn's TLS cert and be DNS-only (not Cloudflare-proxied).
+    TURN_TLS_HOST: str = ""
+    TURN_TLS_PORT: int = 443
 
     # JWT
     JWT_SECRET: str = "mumucam_jwt_secret_key_change_in_production"
