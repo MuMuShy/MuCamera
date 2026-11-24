@@ -4,9 +4,36 @@
 #   2) 完整系統 rootfs-*.tar.zst（不含錄影與暫存）
 # 還原：燒一張新的 Raspberry Pi OS → 解開 rootfs 覆蓋 → 重開機
 set -e
-DEST=/mnt/usb/backup
+MNT=${BACKUP_MNT:-/mnt/usb}
+DEST=$MNT/backup
+# 備份目標 USB 的 UUID（見 /etc/fstab）；換 USB 時用 BACKUP_USB_UUID 覆寫
+USB_UUID=${BACKUP_USB_UUID:-8d9fb24d-666c-4067-81e3-9bfb049c430e}
+MARGIN_KB=$((2 * 1024 * 1024))   # 額外保留 2G
 STAMP=$(date +%Y%m%d-%H%M)
+
+die() { echo "[backup] 中止：$*" >&2; exit 1; }
+
+# 1) /mnt/usb 必須是掛載點。fstab 有 nofail，USB 沒掛上時 /mnt/usb 只是 SD 卡上的空目錄，
+#    此時寫入會把系統碟塞滿，所以一律不跑。
+findmnt --mountpoint "$MNT" >/dev/null || die "$MNT 沒有掛載 USB"
+
+# 2) 必須是指定的那顆 USB，且不能和系統碟同一個裝置
+SRC=$(findmnt -n -o SOURCE --mountpoint "$MNT")
+UUID=$(findmnt -n -o UUID --mountpoint "$MNT")
+ROOT_SRC=$(findmnt -n -o SOURCE /)
+[ "$UUID" = "$USB_UUID" ] || die "$MNT 掛的是 $SRC（UUID=$UUID），不是預期的 USB（$USB_UUID）"
+[ "$SRC" != "$ROOT_SRC" ] || die "$MNT 與系統碟是同一個裝置（$SRC）"
+
+# 3) 剩餘空間需大於系統已用空間 + 緩衝（壓縮後實際會小很多，這裡取保守值）
+ROOT_USED_KB=$(df --output=used -k / | tail -1 | tr -d ' ')
+AVAIL_KB=$(df --output=avail -k "$MNT" | tail -1 | tr -d ' ')
+[ "$AVAIL_KB" -gt $((ROOT_USED_KB + MARGIN_KB)) ] || \
+    die "USB 剩餘 $((AVAIL_KB / 1024))M，不足 $(((ROOT_USED_KB + MARGIN_KB) / 1024))M"
+
+echo "[backup] 目標 $SRC（$MNT，剩餘 $((AVAIL_KB / 1024 / 1024))G）"
 mkdir -p "$DEST"
+# 再確認一次：備份目錄確實落在 USB 檔案系統上
+[ "$(findmnt -n -o TARGET -T "$DEST")" = "$MNT" ] || die "$DEST 不在 $MNT 檔案系統上"
 cd /
 
 echo "[backup] config bundle"
