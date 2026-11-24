@@ -73,6 +73,25 @@ CB 也透過 4G 自行連到 JNC SCADA（59.125.238.217:12345），與本系統�
 > 舊的 `net-watchdog`（`/usr/local/bin/net_watchdog.sh`）偵測的是 `wwan0`，
 > 本機 4G 為 RNDIS `usb1`，該腳本實際上不會動作。
 
+## USB 掛載保護（避免寫爆系統碟）
+
+fstab 的 `/mnt/usb`（UUID 8d9fb24d-…）設有 `nofail`：USB 掛不上時系統照常開機，
+但 `/mnt/usb` 只是 SD 卡上的空目錄。三層保護：
+
+1. **錄影相關服務**（recorder ×2、playback、cleanup ×2）加 drop-in
+   `systemd/require-usb.conf` → `/etc/systemd/system/<服務>.service.d/`：
+   USB 沒掛就不啟動，掛載消失就立即停止。
+2. **SD 卡上的 `/mnt/usb` 目錄設為 `chattr +i`**：USB 沒掛時任何程式都寫不進去
+   （設定方式見 `require-usb.conf` 註解）。
+3. **備份腳本**執行前檢查 `findmnt --mountpoint /mnt/usb`、USB UUID、剩餘空間，任一不符即中止。
+
+USB 重新插上後：
+
+```bash
+sudo mount /mnt/usb
+sudo systemctl start mumucam-recorder mumucam-recorder-cam2 mumucam-playback
+```
+
 ## 遠端維護入口（Tailscale）
 
 | 項目 | 位址 |
