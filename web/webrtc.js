@@ -410,8 +410,19 @@ if (typeof window.MuMuCamera === 'undefined') {
                 pc = null;
             }
 
+            // Diagnostic: ?turn=tls forces relay via TURN over TLS 443 only
+            // (simulates networks that only allow 80/443, e.g. government networks)
+            const rtcConfig = { iceServers };
+            if (new URLSearchParams(location.search).get('turn') === 'tls') {
+                rtcConfig.iceServers = iceServers
+                    .map(s => ({ ...s, urls: [].concat(s.urls).filter(u => u.startsWith('turns:')) }))
+                    .filter(s => s.urls.length);
+                rtcConfig.iceTransportPolicy = 'relay';
+                console.log('[diag] TURN over TLS only:', rtcConfig.iceServers.map(s => s.urls));
+            }
+
             // Create RTCPeerConnection
-            peer = new RTCPeerConnection({ iceServers });
+            peer = new RTCPeerConnection(rtcConfig);
             pc = peer;
 
             // Set up video element with low-latency settings

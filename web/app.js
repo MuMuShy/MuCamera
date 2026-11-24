@@ -199,6 +199,15 @@ async function startWatching(deviceId) {
     document.getElementById('watchingDeviceName').textContent = device.device_name || device.device_id; // textContent is XSS-safe
     document.getElementById('watchSection').classList.add('active');
 
+    // webrtc.js loads after app.js; on slow networks the device list can arrive first
+    for (let i = 0; i < 120 && typeof initializeWebRTC !== 'function'; i++) {
+        await new Promise(r => setTimeout(r, 250));
+    }
+    if (typeof initializeWebRTC !== 'function') {
+        console.error('webrtc.js not loaded; cannot start watching');
+        return;
+    }
+
     // Initialize WebRTC (see webrtc.js)
     await initializeWebRTC(deviceId);
 }

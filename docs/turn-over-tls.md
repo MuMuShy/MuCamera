@@ -22,7 +22,6 @@
    tls-listening-port=5349
    cert=/etc/coturn/certs/fullchain.pem
    pkey=/etc/coturn/certs/privkey.pem
-   no-tlsv1
    ```
    `docker-compose.yml` 已掛 `./coturn/certs:/etc/coturn/certs:ro`。
 4. **主機 nginx**（需套件 `libnginx-mod-stream`）：
