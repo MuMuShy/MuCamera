@@ -1,0 +1,12 @@
+[Unit]
+Description=MuMu Camera 4G 斷線自動救援（重連 / 重置模組 / 重開機）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/sbin/mumucam-lte-watchdog.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

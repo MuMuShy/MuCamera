@@ -1,0 +1,11 @@
+[Unit]
+Description=Water quality CB Web Proxy (192.168.0.88:80 -> :8088)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/socat TCP-LISTEN:8088,fork,reuseaddr TCP:192.168.0.88:80,connect-timeout=5
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

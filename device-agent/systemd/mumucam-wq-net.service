@@ -1,0 +1,12 @@
+[Unit]
+Description=MuMu Camera 水質監測站上網 NAT（192.168.0.88 -> 4G）
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/mumucam-wq-net.sh
+
+[Install]
+WantedBy=multi-user.target

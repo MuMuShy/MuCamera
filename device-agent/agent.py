@@ -30,6 +30,7 @@ from onvif_controller import ONVIFController, ONVIFConfig
 from camera_locator import CameraLocator
 from gps_reader import GPSManager, create_gps_manager
 from system_monitor import SystemMonitor
+from water_quality import WaterQualityPoller, read_lte_status
 
 logging.basicConfig(
     level=logging.INFO,
@@ -232,6 +233,10 @@ class Go2RTCProxyAgent:
 
         # System monitor
         self._system_monitor = SystemMonitor()
+
+        # 水質監測站（CB）讀取，獨立於 WebSocket 連線持續執行
+        self._wq_poller = WaterQualityPoller()
+        self._wq_task: Optional[asyncio.Task] = None
 
         # LiveKit RTMP pusher (activated on server command)
         self._rtmp_pusher = FFmpegRTMPPusher(go2rtc_http)
@@ -449,6 +454,9 @@ class Go2RTCProxyAgent:
         self._tasks.add(self._heartbeat_task)
         self._tasks.add(self._capabilities_task)
         self._tasks.add(self._sysinfo_task)
+
+        if self._wq_task is None or self._wq_task.done():
+            self._wq_task = asyncio.create_task(self._wq_poller.run())
 
     def _stop_background_tasks(self):
         """Stop all background tasks"""
@@ -896,6 +904,8 @@ class Go2RTCProxyAgent:
                 try:
                     sysinfo = self._system_monitor.collect()
                     sysinfo["go2rtc_healthy"] = self._go2rtc_healthy
+                    sysinfo["water_quality"] = self._wq_poller.latest
+                    sysinfo["lte"] = read_lte_status()
                     await self._send_message_safe({
                         "type": "system_info",
                         "ts": datetime.utcnow().isoformat(),

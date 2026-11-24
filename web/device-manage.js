@@ -227,11 +227,54 @@
         if (sys.uptime_seconds != null) sysHtml += row('已開機', formatUptime(sys.uptime_seconds));
         sysContainer.innerHTML = sysHtml || row('無資料', '--');
 
+        renderWaterQuality(data.water_quality);
+        renderLte(data.lte);
+
         // go2rtc + temperature
         const temp = data.temperature || {};
         document.getElementById('go2rtcStatus').textContent = data.go2rtc_healthy ? '正常' : '異常';
         document.getElementById('go2rtcStatus').style.color = data.go2rtc_healthy ? 'var(--success-color)' : 'var(--danger-color)';
         document.getElementById('cpuTemp').textContent = temp.cpu_temp != null ? temp.cpu_temp + ' °C' : '--';
+    }
+
+    // 水質監測站（CB）：只列主要量測值，狀態/斜率/保養類輔助頻道不顯示
+    function renderWaterQuality(wq) {
+        const el = document.getElementById('wqRows');
+        if (!el) return;
+        if (!wq || !wq.enabled) {
+            el.innerHTML = row('狀態', '未啟用');
+            return;
+        }
+        let html = row('連線', wq.online ? '正常' : '無法連線');
+        if (!wq.online && wq.error) html += row('錯誤', wq.error);
+        if (wq.device_time) html += row('設備時間', wq.device_time);
+        (wq.channels || []).filter(c => !c.aux).forEach(c => {
+            html += row(c.name, c.unit ? `${c.text} ${c.unit}` : c.text);
+        });
+        el.innerHTML = html;
+    }
+
+    // 4G 狀態（由 Pi 上的 mumucam-lte-watchdog 產生）
+    function renderLte(lte) {
+        const el = document.getElementById('lteRows');
+        if (!el) return;
+        if (!lte || !lte.state) {
+            el.innerHTML = row('狀態', '無資料');
+            return;
+        }
+        let html = row('狀態', lte.state === 'online' ? '正常' : `斷線（已 ${lte.fail_checks || 0} 次檢查失敗）`);
+        const csq = /\+CSQ:\s*(\d+)/.exec(lte.signal || '');
+        if (csq) {
+            const v = parseInt(csq[1], 10);
+            const level = v === 99 ? '未知' : v >= 20 ? '良好' : v >= 10 ? '普通' : '偏弱';
+            html += row('訊號', `${v}/31（${level}）`);
+        }
+        const cpsi = /\+CPSI:\s*([^,]+),([^,]+),[^,]*,[^,]*,[^,]*,[^,]*,([^,]+)/.exec(lte.signal || '');
+        if (cpsi) html += row('網路', `${cpsi[1]} ${cpsi[3]}`);
+        if (lte.ip) html += row('4G IP', lte.ip);
+        if (lte.modem_usb) html += row('4G 模組', lte.modem_usb === 'present' ? '已連接' : '未偵測到');
+        if (lte.last_ok) html += row('最後正常', lte.last_ok.replace('T', ' ').replace(/\+.*/, ''));
+        el.innerHTML = html;
     }
 
     function row(label, value) {
