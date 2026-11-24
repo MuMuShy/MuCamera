@@ -158,7 +158,13 @@ class SystemMonitor:
 
     def _get_disk(self) -> Dict:
         try:
-            st = os.statvfs("/")
+            # 回報實際錄影磁碟（USB），而非系統 SD 卡根分割區
+            _disk_path = (os.getenv("RECORDING_DIRS", "").split(",")[0].strip()
+                          or os.getenv("RECORDING_DIR", "").strip()
+                          or "/mnt/usb")
+            if not os.path.exists(_disk_path):
+                _disk_path = "/"
+            st = os.statvfs(_disk_path)
             total = st.f_blocks * st.f_frsize
             free = st.f_bavail * st.f_frsize
             used = total - free

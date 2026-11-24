@@ -458,6 +458,17 @@ class ONVIFController:
             logger.error(f"[onvif] SystemReboot error: {e}")
             return {"success": False, "error": str(e)}
 
+    async def set_ip(self, ip: str):
+        """攝影機 IP 變更時呼叫：更新位址並清除舊連線狀態，下次操作會重新初始化"""
+        async with self._lock:
+            logger.info(f"[onvif] Camera address changed: {self.config.ip} → {ip}")
+            self.config.ip = ip
+            self._initialized = False
+            self._camera = None
+            self._media = None
+            self._ptz = None
+            self._imaging = None
+
     async def is_reachable(self) -> bool:
         """
         Lightweight probe to check if camera is reachable.

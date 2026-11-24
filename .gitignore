@@ -128,3 +128,8 @@ snapshots/
 secrets/
 credentials/
 *.secret
+
+# 本機備份檔
+*.bak
+*.bak.
+*.bak-*

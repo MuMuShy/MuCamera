@@ -1,0 +1,6 @@
+#!/bin/sh
+# 攝影機網頁代理的連線端（由 socat 每個連線執行一次）
+# 用法：camera-proxy-connect <source> <預設 IP>
+# 攝影機 IP 若被 agent 自動定位到新位址，會寫在 /var/lib/mumucam/cameras/<source>.ip
+IP=$(cat "/var/lib/mumucam/cameras/$1.ip" 2>/dev/null)
+exec socat STDIO "TCP:${IP:-$2}:80,connect-timeout=5"

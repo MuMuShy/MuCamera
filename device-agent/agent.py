@@ -27,6 +27,7 @@ import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from onvif_controller import ONVIFController, ONVIFConfig
+from camera_locator import CameraLocator
 from gps_reader import GPSManager, create_gps_manager
 from system_monitor import SystemMonitor
 
@@ -101,6 +102,8 @@ class FFmpegRTMPPusher:
 
         cmd = [
             "ffmpeg",
+            "-nostdin",
+            "-loglevel", "error",
             "-fflags", "nobuffer",
             "-flags", "low_delay",
             "-rtsp_transport", "tcp",
@@ -114,10 +117,12 @@ class FFmpegRTMPPusher:
         ]
         logger.info(f"[ffmpeg] Starting: {' '.join(cmd)}")
         try:
+            # 輸出不可接 PIPE：無人讀取時 pipe 塞滿會讓 ffmpeg 阻塞而停止推流
             self._process = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
             logger.info(f"[ffmpeg] Started PID={self._process.pid}")
         except FileNotFoundError:
@@ -230,6 +235,10 @@ class Go2RTCProxyAgent:
 
         # LiveKit RTMP pusher (activated on server command)
         self._rtmp_pusher = FFmpegRTMPPusher(go2rtc_http)
+
+        # 攝影機 IP 自動定位（依 MAC 追蹤 IP 變動）
+        self._camera_locator = CameraLocator(go2rtc_http)
+        self._locator_last_scan: Dict[str, datetime] = {}
 
         # RTSP watchdog state (per-camera)
         self._watchdog_fail_counts: Dict[str, int] = {}
@@ -734,10 +743,19 @@ class Go2RTCProxyAgent:
                         if self._watchdog_fail_counts.get(source, 0) > 0:
                             logger.info(f"[watchdog] {source} ({host}:{port}) recovered, resetting fail count")
                         self._watchdog_fail_counts[source] = 0
+                        await self._camera_locator.learn_mac(source, host)
+                        if host != self._camera_locator.home_ips.get(source):
+                            # 已改用新 IP：確保 go2rtc 仍指向新 IP（go2rtc 重啟後會回到 yaml 設定）
+                            await self._camera_locator.sync_go2rtc(source, host)
                     else:
                         count = self._watchdog_fail_counts.get(source, 0) + 1
                         self._watchdog_fail_counts[source] = count
                         logger.warning(f"[watchdog] {source} ({host}:{port}) probe failed ({count}/{FAIL_THRESHOLD})")
+
+                        if count >= FAIL_THRESHOLD and await self._relocate_camera(source):
+                            # 攝影機只是換了 IP，已改指向新位址，不需重開
+                            self._watchdog_fail_counts[source] = 0
+                            continue
 
                         if count >= FAIL_THRESHOLD:
                             # Check cooldown
@@ -757,6 +775,27 @@ class Go2RTCProxyAgent:
             logger.debug("[watchdog] RTSP watchdog cancelled")
         except Exception as e:
             logger.error(f"[watchdog] RTSP watchdog error: {e}", exc_info=True)
+
+    async def _relocate_camera(self, source: str) -> bool:
+        """依 MAC 找回 IP 已變動的攝影機並改指向新 IP；找不到時不做任何變更"""
+        RESCAN_SECONDS = 120
+
+        last_scan = self._locator_last_scan.get(source)
+        if last_scan and (datetime.utcnow() - last_scan).total_seconds() < RESCAN_SECONDS:
+            return False
+        self._locator_last_scan[source] = datetime.utcnow()
+
+        controller = self.onvif_controllers.get(source)
+        new_ip = await self._camera_locator.locate(source)
+        if not controller or not new_ip or new_ip == controller.config.ip:
+            return False
+
+        old_ip = controller.config.ip
+        logger.warning(f"[locator] {source} IP 已變更：{old_ip} → {new_ip}，改指向新 IP")
+        await self._camera_locator.apply(source, new_ip)
+        await controller.set_ip(new_ip)
+        await self._send_watchdog_event(source, "ip_changed", f"Camera IP changed: {old_ip} -> {new_ip}")
+        return True
 
     async def _recovery_sequence(self, source: str):
         """Recovery sequence: ONVIF reboot → wait → restart go2rtc"""
@@ -986,28 +1025,18 @@ class Go2RTCProxyAgent:
                 ) as resp:
                     status = resp.status
                     resp_headers = dict(resp.headers)
-                    resp_body = await resp.read()
+                    content_length = -1
+                    try:
+                        content_length = int(resp_headers.get("Content-Length", resp_headers.get("content-length", -1)))
+                    except (TypeError, ValueError):
+                        content_length = -1
 
-                    if len(resp_body) <= self.CHUNK_SIZE:
-                        # 小回應：直接傳送（原有行為）
-                        resp_body_b64 = base64.b64encode(resp_body).decode('utf-8')
-                        response_sent = await self._send_message_safe({
-                            "type": "proxy_playback_resp",
-                            "ts": datetime.utcnow().isoformat(),
-                            "payload": {
-                                "rid": rid,
-                                "status": status,
-                                "headers": resp_headers,
-                                "body_b64": resp_body_b64
-                            }
-                        })
-                    else:
-                        # 大回應：分塊傳送
+                    if content_length > self.CHUNK_SIZE:
+                        # 大檔：邊讀邊切塊送，不整檔進記憶體（降低記憶體壓力、縮短首塊延遲）
                         import math
-                        total_chunks = math.ceil(len(resp_body) / self.CHUNK_SIZE)
-                        logger.info(f"[playback] Large response ({len(resp_body)} bytes), sending in {total_chunks} chunks")
+                        total_chunks = math.ceil(content_length / self.CHUNK_SIZE)
+                        logger.info(f"[playback] Large response ({content_length} bytes), streaming in {total_chunks} chunks")
 
-                        # 先傳 metadata
                         await self._send_message_safe({
                             "type": "proxy_playback_resp",
                             "ts": datetime.utcnow().isoformat(),
@@ -1017,33 +1046,68 @@ class Go2RTCProxyAgent:
                                 "headers": resp_headers,
                                 "chunked": True,
                                 "total_chunks": total_chunks,
-                                "total_size": len(resp_body)
+                                "total_size": content_length
                             }
                         })
 
-                        # 逐塊傳送
-                        for i in range(total_chunks):
-                            chunk = resp_body[i * self.CHUNK_SIZE:(i + 1) * self.CHUNK_SIZE]
-                            chunk_b64 = base64.b64encode(chunk).decode('utf-8')
+                        response_sent = True
+                        sent_chunks = 0
+                        buf = bytearray()
+                        async for data in resp.content.iter_chunked(256 * 1024):
+                            buf += data
+                            while len(buf) >= self.CHUNK_SIZE:
+                                chunk = bytes(buf[:self.CHUNK_SIZE])
+                                del buf[:self.CHUNK_SIZE]
+                                sent = await self._send_message_safe({
+                                    "type": "proxy_playback_chunk",
+                                    "ts": datetime.utcnow().isoformat(),
+                                    "payload": {
+                                        "rid": rid,
+                                        "chunk_index": sent_chunks,
+                                        "body_b64": base64.b64encode(chunk).decode('utf-8')
+                                    }
+                                })
+                                if not sent:
+                                    logger.error(f"[playback] Failed to send chunk {sent_chunks + 1}/{total_chunks}")
+                                    response_sent = False
+                                    break
+                                sent_chunks += 1
+                            if not response_sent:
+                                break
+                        if response_sent and buf:
                             sent = await self._send_message_safe({
                                 "type": "proxy_playback_chunk",
                                 "ts": datetime.utcnow().isoformat(),
                                 "payload": {
                                     "rid": rid,
-                                    "chunk_index": i,
-                                    "body_b64": chunk_b64
+                                    "chunk_index": sent_chunks,
+                                    "body_b64": base64.b64encode(bytes(buf)).decode('utf-8')
                                 }
                             })
                             if sent:
-                                logger.debug(f"[playback] Sent chunk {i+1}/{total_chunks}")
+                                sent_chunks += 1
                             else:
-                                logger.error(f"[playback] Failed to send chunk {i+1}/{total_chunks}")
-                                break
-
-                        response_sent = True
+                                response_sent = False
+                        if response_sent and sent_chunks != total_chunks:
+                            logger.warning(f"[playback] chunk count mismatch: sent {sent_chunks}, expected {total_chunks}")
+                        sent_bytes = content_length
+                    else:
+                        # 小回應或長度未知：維持原本「整檔讀取後一次送」行為
+                        resp_body = await resp.read()
+                        sent_bytes = len(resp_body)
+                        response_sent = await self._send_message_safe({
+                            "type": "proxy_playback_resp",
+                            "ts": datetime.utcnow().isoformat(),
+                            "payload": {
+                                "rid": rid,
+                                "status": status,
+                                "headers": resp_headers,
+                                "body_b64": base64.b64encode(resp_body).decode('utf-8')
+                            }
+                        })
 
                     if response_sent:
-                        logger.info(f"[playback] {method} {path} → {status} ({len(resp_body)} bytes) ✓")
+                        logger.info(f"[playback] {method} {path} → {status} ({sent_bytes} bytes) ✓")
                     else:
                         logger.error(f"[playback] {method} {path} → {status} ✗ Failed to send response")
 
@@ -1229,6 +1293,15 @@ class Go2RTCProxyAgent:
         if self.onvif_controllers:
             self._time_sync_task = asyncio.create_task(self._time_sync_loop())
             logger.info(f"[time-sync] 已啟動，每 {self.time_sync_interval} 秒同步一次")
+
+        # 登記攝影機供自動定位；沿用上次定位到的 IP（設定中的 IP 視為原始位址）
+        for source, controller in self.onvif_controllers.items():
+            env_suffix = "" if source == "cam" else f"_{source.upper()}"
+            self._camera_locator.register(source, controller.config.ip, os.getenv(f"ONVIF_MAC{env_suffix}"))
+            saved_ip = self._camera_locator.saved_ip(source)
+            if saved_ip and saved_ip != controller.config.ip:
+                logger.info(f"[locator] {source} 沿用上次定位的 IP {saved_ip}（設定為 {controller.config.ip}）")
+                await controller.set_ip(saved_ip)
 
         # 啟動 RTSP watchdog（如有 ONVIF controller）
         if self.onvif_controllers:

@@ -12,6 +12,7 @@ import time
 import os
 import signal
 import logging
+from collections import deque
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -32,14 +33,19 @@ class RecorderManager:
         rtsp_url: str = "rtsp://127.0.0.1:8554/cam",
         output_dir: str = "/opt/mumucam/recordings/cam",
         segment_seconds: int = 300,
-        enabled: bool = True
+        enabled: bool = True,
+        stall_seconds: int = 60
     ):
         self.rtsp_url = rtsp_url
         self.output_dir = Path(output_dir)
         self.segment_seconds = segment_seconds
         self.enabled = enabled
+        # 最新 .ts 檔超過此秒數未寫入即判定停滯（ffmpeg 寫入時會持續更新 mtime）
+        self.stall_seconds = stall_seconds
 
         self._process: Optional[subprocess.Popen] = None
+        # ffmpeg stderr 最後幾行（由背景執行緒持續讀取，避免 pipe 塞滿導致 ffmpeg 卡住）
+        self._stderr_tail: deque = deque(maxlen=20)
         self._monitor_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
@@ -142,11 +148,15 @@ class RecorderManager:
         return [
             "ffmpeg",
             "-hide_banner",
+            "-nostdin",
             "-loglevel", "warning",
             # 輸入選項
             "-rtsp_transport", "tcp",
+            # socket I/O 逾時（微秒）：來源無資料時讓 ffmpeg 自行結束，而非無限等待
+            "-timeout", "15000000",
             "-i", self.rtsp_url,
-            # 輸出選項 - 不轉碼
+            # 輸出選項 - 只錄影像、不轉碼（PCMU 音訊在 .ts 中只會存成無法播放的 data 流）
+            "-map", "0:v",
             "-c", "copy",
             # 分段 muxer
             "-f", "segment",
@@ -166,11 +176,20 @@ class RecorderManager:
         try:
             self._process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 # 建立新的程序群組以便信號處理
                 start_new_session=True
             )
+            self._stderr_tail.clear()
+            # stderr 必須持續讀取：pipe 緩衝區僅約 64KB，塞滿後 ffmpeg 寫 log 時會阻塞而停止錄影
+            threading.Thread(
+                target=self._drain_stderr,
+                args=(self._process,),
+                daemon=True,
+                name="RecorderStderr"
+            ).start()
             self._last_error = None
             return True
         except FileNotFoundError:
@@ -181,6 +200,27 @@ class RecorderManager:
             self._last_error = str(e)
             logger.error(f"[recorder] 啟動 ffmpeg 失敗：{e}")
             return False
+
+    def _drain_stderr(self, process: subprocess.Popen):
+        """持續讀取 ffmpeg stderr，保留最後幾行並限速寫入 log"""
+        last_log = 0.0
+        suppressed = 0
+        try:
+            for raw in process.stderr:
+                line = raw.decode(errors="ignore").rstrip()
+                if not line:
+                    continue
+                self._stderr_tail.append(line)
+                now = time.time()
+                if now - last_log >= 60:
+                    extra = f"（另略過 {suppressed} 行）" if suppressed else ""
+                    logger.warning(f"[recorder] ffmpeg：{line[:300]}{extra}")
+                    last_log = now
+                    suppressed = 0
+                else:
+                    suppressed += 1
+        except Exception:
+            pass
 
     def _get_latest_output_mtime(self) -> Optional[float]:
         """取得輸出目錄中最新 .ts 檔案的修改時間"""
@@ -197,7 +237,7 @@ class RecorderManager:
         """監控 ffmpeg 程序並在失敗或停滯時重啟"""
         logger.info("[recorder] 監控執行緒已啟動")
         restart_delay = 5  # 重啟間隔秒數
-        stall_timeout = self.segment_seconds + 60  # 停滯判定門檻
+        stall_timeout = self.stall_seconds  # 停滯判定門檻
         last_output_check = time.time()
         last_known_mtime = self._get_latest_output_mtime()
 
@@ -211,12 +251,7 @@ class RecorderManager:
 
                 if retcode is not None:
                     # 程序已結束
-                    stderr = ""
-                    try:
-                        _, stderr_bytes = self._process.communicate(timeout=1)
-                        stderr = stderr_bytes.decode(errors="ignore")[-500:]  # 最後 500 字元
-                    except Exception:
-                        pass
+                    stderr = "\n".join(list(self._stderr_tail)[-5:])[-500:]  # 最後 500 字元
 
                     if retcode == 0:
                         logger.info("[recorder] ffmpeg 正常結束")
@@ -245,7 +280,7 @@ class RecorderManager:
                             stall_duration = now - current_mtime
                             if stall_duration > stall_timeout:
                                 self._last_error = f"ffmpeg 停滯 {int(stall_duration)} 秒無新輸出"
-                                logger.error(f"[recorder] ffmpeg 停滯偵測：{int(stall_duration)} 秒無新 .ts 檔案，強制重啟")
+                                logger.error(f"[recorder] ffmpeg 停滯偵測：{int(stall_duration)} 秒無寫入 .ts 檔案，強制重啟")
                                 try:
                                     self._process.kill()
                                     self._process.wait(timeout=5)
@@ -274,7 +309,8 @@ def create_recorder_manager(
     rtsp_url: str = None,
     output_dir: str = None,
     segment_seconds: int = None,
-    enabled: bool = None
+    enabled: bool = None,
+    stall_seconds: int = None
 ) -> RecorderManager:
     """
     從環境變數或參數建立錄影管理器
@@ -284,6 +320,7 @@ def create_recorder_manager(
         RECORDING_RTSP_URL: RTSP 來源 URL（預設："rtsp://127.0.0.1:8554/cam"）
         RECORDING_DIR: 輸出目錄（預設："/opt/mumucam/recordings/cam"）
         RECORDING_SEGMENT_SECONDS: 分段時長（預設：300）
+        RECORDING_STALL_SECONDS: 停滯判定秒數（預設：60）
     """
     if enabled is None:
         enabled = os.getenv("RECORDING_ENABLED", "true").lower() == "true"
@@ -293,12 +330,15 @@ def create_recorder_manager(
         output_dir = os.getenv("RECORDING_DIR", "/opt/mumucam/recordings/cam")
     if segment_seconds is None:
         segment_seconds = int(os.getenv("RECORDING_SEGMENT_SECONDS", "300"))
+    if stall_seconds is None:
+        stall_seconds = int(os.getenv("RECORDING_STALL_SECONDS", "60"))
 
     return RecorderManager(
         rtsp_url=rtsp_url,
         output_dir=output_dir,
         segment_seconds=segment_seconds,
-        enabled=enabled
+        enabled=enabled,
+        stall_seconds=stall_seconds
     )
 
 
