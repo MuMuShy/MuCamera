@@ -7,6 +7,7 @@
     <title>水下直播系統 - iHousing 水下影音科技</title>
     <meta name="description" content="iHousing 水下影音科技 - 水下即時監控暨錄影回放系統">
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="live-view.css?v=2">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
@@ -97,16 +98,14 @@
                 <header class="live-header">
                     <button id="endWatchBtn" class="back-btn">
                         <i data-lucide="arrow-left" style="width: 18px; height: 18px;"></i>
-                        返回裝置列表
+                        <span class="back-btn-text">裝置列表</span>
                     </button>
-                    <div class="live-status">
-                        <span id="watchingDeviceName" style="font-weight: 600; margin-right: 12px;">攝影機</span>
-                        <span class="connection-status" id="connectionStatus">
-                            <i data-lucide="wifi" style="width: 14px; height: 14px;"></i>
-                            連線中...
-                        </span>
+                    <div class="live-title">
+                        <span id="watchingDeviceName" class="live-device-name">攝影機</span>
+                        <span class="connection-status" id="connectionStatus">連線中...</span>
                     </div>
                     <div class="live-header-actions">
+                        <span class="live-clock" id="liveClock">--:--:--</span>
                         <button id="toggleControlsBtn" class="toggle-controls-btn" aria-label="收合操作面板">
                             <i data-lucide="panel-right-close" style="width: 20px; height: 20px;"></i>
                         </button>
@@ -114,47 +113,77 @@
                 </header>
 
                 <div class="live-container">
-                    <div class="video-stage">
+                    <div class="video-stage" id="videoStage">
                         <video id="remoteVideo" autoplay playsinline muted></video>
+
+                        <!-- 畫面資訊 -->
+                        <div class="video-overlay-top">
+                            <span class="stage-live-badge" id="liveBadge">LIVE</span>
+                            <span class="video-chip" id="videoSourceLabel">攝影機 1 · 流暢 SD</span>
+                        </div>
+
+                        <!-- 連線狀態（連線中 / 錯誤） -->
+                        <div class="video-state" id="videoState">
+                            <div class="video-state-spinner" id="videoStateSpinner"></div>
+                            <i data-lucide="video-off" class="video-state-icon" id="videoStateIcon"></i>
+                            <div class="video-state-text" id="videoStateText">連線中...</div>
+                            <button class="btn btn-secondary btn-sm video-retry-btn" id="videoRetryBtn" type="button">
+                                <i data-lucide="rotate-cw" style="width: 14px; height: 14px;"></i>
+                                重新連線
+                            </button>
+                        </div>
+
+                        <!-- 畫面工具列 -->
+                        <div class="video-toolbar">
+                            <button class="video-tool-btn" id="snapshotBtn" type="button" title="截圖存檔" aria-label="截圖存檔">
+                                <i data-lucide="camera" style="width: 18px; height: 18px;"></i>
+                            </button>
+                            <button class="video-tool-btn" id="fullscreenBtn" type="button" title="全螢幕" aria-label="全螢幕">
+                                <i data-lucide="maximize" style="width: 18px; height: 18px;"></i>
+                            </button>
+                        </div>
                     </div>
 
                     <aside class="controls-sidebar">
+                        <!-- 畫面來源 -->
                         <div class="control-group">
                             <h3 class="control-title">
-                                <i data-lucide="video" style="width: 14px; height: 14px; margin-right: 8px; vertical-align: middle;"></i>
-                                串流切換
+                                <i data-lucide="video" class="control-title-icon"></i>
+                                畫面來源
                             </h3>
-                            <div class="stream-switch-buttons">
-                                <button class="stream-switch-btn active" data-cam="cam" onclick="switchCamera('cam')">
-                                    <i data-lucide="camera" style="width: 14px; height: 14px;"></i>
-                                    攝影機 1
-                                </button>
-                                <button class="stream-switch-btn" data-cam="cam2" onclick="switchCamera('cam2')">
-                                    <i data-lucide="camera" style="width: 14px; height: 14px;"></i>
-                                    攝影機 2
-                                </button>
+                            <div class="segmented">
+                                <button class="stream-switch-btn active" data-cam="cam" onclick="switchCamera('cam')">攝影機 1</button>
+                                <button class="stream-switch-btn" data-cam="cam2" onclick="switchCamera('cam2')">攝影機 2</button>
                             </div>
-                            <div class="stream-switch-buttons" style="margin-top: 8px;">
-                                <button class="stream-switch-btn active" id="btnSD" onclick="toggleQuality('sd')">
-                                    <i data-lucide="gauge" style="width: 14px; height: 14px;"></i>
-                                    流暢 SD
-                                </button>
-                                <button class="stream-switch-btn" id="btnHD" onclick="toggleQuality('hd')">
-                                    <i data-lucide="sparkles" style="width: 14px; height: 14px;"></i>
-                                    高清 HD
-                                </button>
+                            <div class="segmented" style="margin-top: 8px;">
+                                <button class="stream-switch-btn active" id="btnSD" onclick="toggleQuality('sd')">流暢 SD</button>
+                                <button class="stream-switch-btn" id="btnHD" onclick="toggleQuality('hd')">高清 HD</button>
                             </div>
                         </div>
 
+                        <!-- 水質監測（有接水質監測站的裝置才顯示） -->
+                        <div class="control-group" id="wqSection" style="display: none;">
+                            <h3 class="control-title control-title-row">
+                                <span>
+                                    <i data-lucide="droplets" class="control-title-icon"></i>
+                                    水質監測
+                                </span>
+                                <span class="status-chip">
+                                    <span class="gps-indicator" id="wqIndicator"></span>
+                                    <span id="wqStatusText">讀取中...</span>
+                                </span>
+                            </h3>
+                            <div id="wqRows"></div>
+                        </div>
+
+                        <!-- 鏡頭控制 -->
                         <div class="control-group">
                             <h3 class="control-title">
-                                <i data-lucide="move" style="width: 14px; height: 14px; margin-right: 8px; vertical-align: middle;"></i>
-                                雲台控制 (PTZ)
+                                <i data-lucide="aperture" class="control-title-icon"></i>
+                                鏡頭控制
                             </h3>
-
-                            <!-- PTZ Controls Wrapper for JS -->
                             <div id="ptzControls">
-                                <!-- Directional PTZ Hidden as per user request -->
+                                <!-- Directional PTZ hidden as per user request -->
                                 <div class="ptz-grid" style="display: none;">
                                     <button class="ptz-btn" data-action="move" data-pan="-0.5" data-tilt="0.5" disabled>↖</button>
                                     <button class="ptz-btn" data-action="move" data-pan="0" data-tilt="0.5" title="上">▲</button>
@@ -167,48 +196,42 @@
                                     <button class="ptz-btn" data-action="move" data-pan="0.5" data-tilt="-0.5" disabled>↘</button>
                                 </div>
 
-                                <h3 class="control-title" style="margin-top: 0;">
-                                    <i data-lucide="zoom-in" style="width: 14px; height: 14px; margin-right: 8px; vertical-align: middle;"></i>
-                                    鏡頭控制
-                                </h3>
+                                <div class="lens-label">變焦（按住）</div>
                                 <div class="zoom-controls">
                                     <button class="zoom-btn ptz-btn" data-action="move" data-zoom="-0.5">
-                                        <i data-lucide="minus" style="width: 16px; height: 16px;"></i>
+                                        <i data-lucide="zoom-out" style="width: 16px; height: 16px;"></i>
                                         拉遠
                                     </button>
                                     <button class="zoom-btn ptz-btn" data-action="move" data-zoom="0.5">
+                                        <i data-lucide="zoom-in" style="width: 16px; height: 16px;"></i>
                                         拉近
-                                        <i data-lucide="plus" style="width: 16px; height: 16px;"></i>
                                     </button>
                                 </div>
-                                <div class="zoom-controls" style="margin-top: 8px;">
-                                    <button class="zoom-btn ptz-btn" data-action="focus" data-direction="near">
-                                        <i data-lucide="scan" style="width: 14px; height: 14px;"></i>
-                                        近焦
-                                    </button>
+                                <div class="lens-label">對焦</div>
+                                <div class="zoom-controls">
+                                    <button class="zoom-btn ptz-btn" data-action="focus" data-direction="near">近焦</button>
                                     <button class="zoom-btn ptz-btn" data-action="auto_focus">
-                                        <i data-lucide="target" style="width: 14px; height: 14px;"></i>
+                                        <i data-lucide="focus" style="width: 14px; height: 14px;"></i>
                                         自動
                                     </button>
-                                    <button class="zoom-btn ptz-btn" data-action="focus" data-direction="far">
-                                        <i data-lucide="maximize" style="width: 14px; height: 14px;"></i>
-                                        遠焦
-                                    </button>
+                                    <button class="zoom-btn ptz-btn" data-action="focus" data-direction="far">遠焦</button>
                                 </div>
                             </div>
                         </div>
 
                         <!-- GPS 定位資訊 -->
                         <div class="control-group" id="gpsSection">
-                            <h3 class="control-title">
-                                <i data-lucide="map-pin" style="width: 14px; height: 14px; margin-right: 8px; vertical-align: middle;"></i>
-                                GPS 定位
-                            </h3>
-                            <div id="gpsInfo" class="gps-info">
-                                <div class="gps-status">
+                            <h3 class="control-title control-title-row">
+                                <span>
+                                    <i data-lucide="map-pin" class="control-title-icon"></i>
+                                    GPS 定位
+                                </span>
+                                <span class="status-chip">
                                     <span class="gps-indicator" id="gpsIndicator"></span>
                                     <span id="gpsStatusText">未啟用</span>
-                                </div>
+                                </span>
+                            </h3>
+                            <div id="gpsInfo" class="gps-info">
                                 <div class="gps-coords" id="gpsCoords" style="display: none;">
                                     <div class="gps-row">
                                         <span class="gps-label">緯度</span>
@@ -228,7 +251,7 @@
                                     </div>
                                 </div>
                                 <div class="gps-actions" id="gpsActions" style="display: none;">
-                                    <a id="gpsMapLink" href="#" target="_blank" class="btn btn-secondary btn-sm">
+                                    <a id="gpsMapLink" href="#" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">
                                         <i data-lucide="external-link" style="width: 14px; height: 14px;"></i>
                                         開啟地圖
                                     </a>
@@ -265,8 +288,8 @@
         <div id="sidebarOverlay" class="sidebar-overlay"></div>
     </div>
 
-    <script src="app.js?v=7"></script>
-    <script src="webrtc.js?v=7"></script>
+    <script src="app.js?v=8"></script>
+    <script src="webrtc.js?v=9"></script>
     <script>
         // Initialize Lucide icons
         lucide.createIcons();

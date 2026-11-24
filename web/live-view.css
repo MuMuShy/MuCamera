@@ -1,0 +1,417 @@
+/* =====================================================================
+   Live view v2 — 監控畫面（影像資訊層、狀態、工具列、側欄卡片化）
+   只由 index.html 載入，覆寫 styles.css 中的即時畫面樣式
+   ===================================================================== */
+
+/* ---- Header ---- */
+.live-header {
+    gap: 16px;
+}
+
+.live-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.live-device-name {
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.live-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.live-clock {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+}
+
+.connection-status {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* 狀態膠囊加上狀態燈 */
+.connection-status::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+}
+
+.connection-status.status-connecting::before {
+    animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+}
+
+/* ---- Video stage ---- */
+.video-stage {
+    overflow: hidden;
+    background: radial-gradient(ellipse at center, #0b1220 0%, #000 75%);
+}
+
+#remoteVideo {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    object-fit: contain;
+    background: transparent;
+}
+
+.video-overlay-top {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.stage-live-badge,
+.video-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.stage-live-badge {
+    background: rgba(220, 38, 38, 0.9);
+    color: #fff;
+    display: none;
+}
+
+.video-stage.is-live .stage-live-badge {
+    display: inline-flex;
+}
+
+.stage-live-badge::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #fff;
+    animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+.video-chip {
+    background: rgba(15, 23, 42, 0.65);
+    color: var(--text-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-weight: 500;
+}
+
+/* 連線中 / 錯誤 狀態層 */
+.video-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(2, 6, 23, 0.55);
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    z-index: 1;
+    transition: opacity var(--transition-normal);
+}
+
+.video-stage.is-live .video-state {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.video-state-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(255, 255, 255, 0.12);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: lv-spin 0.9s linear infinite;
+}
+
+@keyframes lv-spin {
+    to { transform: rotate(360deg); }
+}
+
+.video-state-icon {
+    width: 36px;
+    height: 36px;
+    color: var(--text-muted);
+    display: none;
+}
+
+.video-retry-btn {
+    display: none;
+}
+
+.video-stage.is-error .video-state-spinner { display: none; }
+.video-stage.is-error .video-state-icon { display: block; }
+.video-stage.is-error .video-retry-btn { display: inline-flex; }
+.video-stage.is-error .video-state-text { color: var(--text-main); }
+
+/* 右下工具列（滑鼠移到畫面上才顯示；觸控裝置一直顯示） */
+.video-toolbar {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    display: flex;
+    gap: 8px;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity var(--transition-normal), transform var(--transition-normal);
+    z-index: 2;
+}
+
+.video-stage:hover .video-toolbar,
+.video-stage:focus-within .video-toolbar {
+    opacity: 1;
+    transform: none;
+}
+
+@media (hover: none) {
+    .video-toolbar { opacity: 1; transform: none; }
+}
+
+.video-tool-btn {
+    width: 38px;
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(15, 23, 42, 0.7);
+    color: #e2e8f0;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    transition: var(--transition-fast);
+}
+
+.video-tool-btn:hover {
+    background: rgba(14, 165, 233, 0.85);
+    border-color: transparent;
+    color: #fff;
+}
+
+.video-stage:fullscreen {
+    background: #000;
+}
+
+/* ---- Controls sidebar ---- */
+.controls-sidebar {
+    width: 320px;
+}
+
+.control-group {
+    padding: 20px;
+}
+
+.control-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    font-size: 0.75rem;
+}
+
+.control-title-icon {
+    width: 14px;
+    height: 14px;
+    vertical-align: -2px;
+    margin-right: 6px;
+}
+
+.control-title-row {
+    justify-content: space-between;
+}
+
+.status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.status-chip .gps-indicator {
+    margin: 0;
+}
+
+/* 分段切換按鈕 */
+.segmented {
+    display: flex;
+    padding: 3px;
+    gap: 3px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+}
+
+.segmented .stream-switch-btn {
+    flex: 1;
+    padding: 8px 10px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 500;
+    box-shadow: none;
+    justify-content: center;
+}
+
+.segmented .stream-switch-btn:hover {
+    color: var(--text-main);
+    background: var(--bg-elevated);
+}
+
+.segmented .stream-switch-btn.active {
+    background: var(--primary-color);
+    color: #fff;
+    box-shadow: 0 1px 6px rgba(14, 165, 233, 0.35);
+}
+
+/* 鏡頭控制：精簡按鈕 */
+.lens-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin: 0 0 6px;
+}
+
+.zoom-controls + .lens-label {
+    margin-top: 14px;
+}
+
+.zoom-controls {
+    gap: 8px;
+}
+
+.zoom-btn.ptz-btn {
+    aspect-ratio: auto;
+    height: 40px;
+    padding: 0 10px;
+    font-size: 0.85rem;
+    gap: 6px;
+}
+
+/* 水質數值卡 */
+.wq-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.wq-tile {
+    padding: 10px 12px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    min-width: 0;
+}
+
+.wq-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wq-value {
+    margin-top: 4px;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-main);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+}
+
+.wq-value.is-pending {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.wq-unit {
+    margin-left: 3px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.wq-power {
+    display: flex;
+    gap: 16px;
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.wq-power b {
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.wq-stale .wq-grid,
+.wq-stale .wq-power {
+    opacity: 0.55;
+}
+
+@media (max-width: 768px) {
+    .live-clock,
+    .back-btn-text {
+        display: none;
+    }
+
+    .controls-sidebar {
+        width: 100%;
+    }
+
+    .video-overlay-top {
+        top: 10px;
+        left: 10px;
+    }
+
+    .video-toolbar {
+        right: 10px;
+        bottom: 10px;
+    }
+}

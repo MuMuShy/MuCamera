@@ -4,6 +4,7 @@
 
 const API_BASE = window.location.origin;
 let currentDevices = [];
+let autoWatchStarted = false;
 
 // XSS protection helper
 function escapeHtml(str) {
@@ -73,8 +74,10 @@ async function loadDevices() {
             return;
         }
 
-        // 只有一個線上裝置時自動開始觀看
-        if (devices.length === 1 && devices[0].is_online) {
+        // 只有一個線上裝置時自動開始觀看（每次載入頁面只自動開一次）
+        // loadDevices 每 30 秒會重跑，若每次都 startWatching 會不斷疊加 WebRTC 連線
+        if (!autoWatchStarted && devices.length === 1 && devices[0].is_online) {
+            autoWatchStarted = true;
             startWatching(devices[0].device_id);
         }
 

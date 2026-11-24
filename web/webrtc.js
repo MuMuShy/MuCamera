@@ -61,6 +61,7 @@ if (typeof window.MuMuCamera === 'undefined') {
     let lastFramesReceived = 0;
     let stallCount = 0;
     let isReconnecting = false;
+    let lastDeviceId = null;
 
     /**
      * Detect streaming mode from backend
@@ -215,7 +216,25 @@ if (typeof window.MuMuCamera === 'undefined') {
      * Initialize streaming connection (detects mode and starts accordingly)
      */
     window.initializeWebRTC = async function (deviceId) {
+        // Already watching this device: keep the existing session
+        if (deviceId === currentDeviceId && ws &&
+            (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+            console.log('[stream] Already watching', deviceId, '- skip re-init');
+            return;
+        }
+
+        // Tear down any previous session first, otherwise the old WebSocket and
+        // RTCPeerConnection stay alive in the background and keep pulling video
+        if (ws || pc || lkRoom) {
+            stopStream();
+        }
+
         currentDeviceId = deviceId;
+        lastDeviceId = deviceId;
+        updateSourceLabel();
+
+        // GPS / 水質資料與影像連線無關，進入畫面就開始讀取
+        startGPSPolling();
 
         try {
             updateConnectionStatus('連線中...');
@@ -224,10 +243,12 @@ if (typeof window.MuMuCamera === 'undefined') {
             await detectStreamingMode();
 
             // Connect to WebSocket for status updates (always needed for PTZ, GPS etc.)
-            ws = new WebSocket(`${WS_BASE}/ws/viewer`);
+            const socket = new WebSocket(`${WS_BASE}/ws/viewer`);
+            ws = socket;
             const token = localStorage.getItem('token');
 
-            ws.onopen = async () => {
+            socket.onopen = async () => {
+                if (ws !== socket) return; // stale session
                 console.log('WebSocket connected for status updates');
                 sendMessage({
                     type: 'hello',
@@ -243,17 +264,21 @@ if (typeof window.MuMuCamera === 'undefined') {
                 }
             };
 
-            ws.onmessage = async (event) => {
+            socket.onmessage = async (event) => {
+                if (ws !== socket) return; // stale session
                 const message = JSON.parse(event.data);
                 handleStatusMessage(message);
             };
 
-            ws.onerror = (error) => {
+            socket.onerror = (error) => {
+                if (ws !== socket) return; // stale session
                 console.error('WebSocket error:', error);
                 updateConnectionStatus('錯誤');
             };
 
-            ws.onclose = () => {
+            socket.onclose = () => {
+                // A replaced (old) socket closing must not tear down the current stream
+                if (ws !== socket) return;
                 console.log('WebSocket closed');
                 stopStream();
                 updateConnectionStatus('已斷線');
@@ -361,6 +386,7 @@ if (typeof window.MuMuCamera === 'undefined') {
      * Start WebRTC connection to go2rtc through proxy (P2P mode)
      */
     async function startWebRTC(deviceId) {
+        let peer = null;
         try {
             console.log('Starting WebRTC connection to go2rtc');
 
@@ -378,8 +404,15 @@ if (typeof window.MuMuCamera === 'undefined') {
                 console.warn('Failed to fetch TURN credentials, using STUN only:', e);
             }
 
+            // Never leave a previous peer connection running in the background
+            if (pc) {
+                pc.close();
+                pc = null;
+            }
+
             // Create RTCPeerConnection
-            pc = new RTCPeerConnection({ iceServers });
+            peer = new RTCPeerConnection({ iceServers });
+            pc = peer;
 
             // Set up video element with low-latency settings
             const videoElement = document.getElementById('remoteVideo');
@@ -387,7 +420,8 @@ if (typeof window.MuMuCamera === 'undefined') {
             videoElement.playsInline = true;
             videoElement.muted = true;
 
-            pc.ontrack = (event) => {
+            peer.ontrack = (event) => {
+                if (pc !== peer) return; // stale connection
                 console.log('Received track:', event.track.kind);
                 if (event.streams && event.streams[0]) {
                     videoElement.srcObject = event.streams[0];
@@ -400,40 +434,41 @@ if (typeof window.MuMuCamera === 'undefined') {
                 }
             };
 
-            pc.oniceconnectionstatechange = () => {
-                console.log('ICE connection state:', pc.iceConnectionState);
-                if (pc.iceConnectionState === 'connected') {
+            peer.oniceconnectionstatechange = () => {
+                if (pc !== peer) return; // stale connection
+                console.log('ICE connection state:', peer.iceConnectionState);
+                if (peer.iceConnectionState === 'connected') {
                     updateConnectionStatus('監控中');
                     stallCount = 0;
-                } else if (pc.iceConnectionState === 'disconnected') {
+                } else if (peer.iceConnectionState === 'disconnected') {
                     updateConnectionStatus('連線不穩...');
                     // Wait 5s, if still disconnected, reconnect
                     setTimeout(() => {
-                        if (pc && pc.iceConnectionState === 'disconnected') {
+                        if (pc === peer && peer.iceConnectionState === 'disconnected') {
                             console.warn('[ICE] Still disconnected, reconnecting...');
                             reconnectStream();
                         }
                     }, 5000);
-                } else if (pc.iceConnectionState === 'failed') {
+                } else if (peer.iceConnectionState === 'failed') {
                     updateConnectionStatus('重新連線中...');
                     reconnectStream();
                 }
             };
 
             // Add transceiver for receiving video
-            pc.addTransceiver('video', { direction: 'recvonly' });
-            pc.addTransceiver('audio', { direction: 'recvonly' });
+            peer.addTransceiver('video', { direction: 'recvonly' });
+            peer.addTransceiver('audio', { direction: 'recvonly' });
 
             // Create offer
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
+            const offer = await peer.createOffer();
+            await peer.setLocalDescription(offer);
 
             // Wait for ICE candidates before sending offer
             // go2rtc needs browser's candidates (no trickle ICE in HTTP POST mode)
             // Send as soon as we have srflx (fast) or relay (needed for strict NAT)
             console.log('Gathering ICE candidates...');
             await new Promise((resolve) => {
-                if (pc.iceGatheringState === 'complete') {
+                if (peer.iceGatheringState === 'complete') {
                     resolve();
                     return;
                 }
@@ -442,8 +477,8 @@ if (typeof window.MuMuCamera === 'undefined') {
                 const done = () => {
                     if (resolved) return;
                     resolved = true;
-                    pc.removeEventListener('icecandidate', onCandidate);
-                    pc.removeEventListener('icegatheringstatechange', onStateChange);
+                    peer.removeEventListener('icecandidate', onCandidate);
+                    peer.removeEventListener('icegatheringstatechange', onStateChange);
                     resolve();
                 };
                 const onCandidate = (e) => {
@@ -456,15 +491,15 @@ if (typeof window.MuMuCamera === 'undefined') {
                     }
                 };
                 const onStateChange = () => {
-                    if (pc.iceGatheringState === 'complete') done();
+                    if (peer.iceGatheringState === 'complete') done();
                 };
-                pc.addEventListener('icecandidate', onCandidate);
-                pc.addEventListener('icegatheringstatechange', onStateChange);
+                peer.addEventListener('icecandidate', onCandidate);
+                peer.addEventListener('icegatheringstatechange', onStateChange);
                 setTimeout(done, 3000); // hard timeout
             });
 
             // Use the full local description which now includes gathered candidates
-            const fullOffer = pc.localDescription;
+            const fullOffer = peer.localDescription;
             const offerCandidates = fullOffer.sdp.split('\n').filter(l => l.startsWith('a=candidate:'));
             console.log('Offer candidates:', offerCandidates.length);
             offerCandidates.forEach(c => console.log('  ', c.trim()));
@@ -489,6 +524,12 @@ if (typeof window.MuMuCamera === 'undefined') {
                 throw new Error(`go2rtc WebRTC failed: ${response.status} ${response.statusText}`);
             }
 
+            // Superseded by a newer connection while waiting: drop this one
+            if (pc !== peer) {
+                peer.close();
+                return;
+            }
+
             const rawAnswer = await response.text();
             const answerSDP = rawAnswer.trim();
             const decodedSDP = atob(answerSDP);
@@ -497,7 +538,7 @@ if (typeof window.MuMuCamera === 'undefined') {
             remoteCandidates.forEach(c => console.log('  ', c.trim()));
 
             // Set remote description
-            await pc.setRemoteDescription({
+            await peer.setRemoteDescription({
                 type: 'answer',
                 sdp: decodedSDP
             });
@@ -509,8 +550,13 @@ if (typeof window.MuMuCamera === 'undefined') {
 
         } catch (error) {
             console.error('Error starting WebRTC:', error);
-            updateConnectionStatus('錯誤');
-            showToast('無法啟動視訊串流: ' + error.message, 'error');
+            // Close the half-open connection so it can't linger
+            if (peer) {
+                peer.close();
+                if (pc === peer) pc = null;
+            }
+            // Error is shown on the video stage overlay (with a retry button)
+            updateConnectionStatus('連線失敗');
         }
     }
 
@@ -621,7 +667,107 @@ if (typeof window.MuMuCamera === 'undefined') {
         }
     }
 
+    /**
+     * Water quality (JNC CB station wired to the Pi), delivered inside device sysinfo
+     */
+    let wqPollingInterval = null;
+
+    // 水質數值卡（CB 頻道名稱 → 顯示名稱）
+    const WQ_TILES = [
+        ['水溫', '水溫'],
+        ['pH', '酸鹼值 pH'],
+        ['UVDO', '溶氧 DO'],
+        ['SC', '鹽度'],
+        ['ORP', '氧化還原 ORP'],
+        ['TB', '濁度'],
+    ];
+    // 電源資訊（顯示在數值卡下方一行）
+    const WQ_POWER = [
+        ['電池電量', '電池'],
+        ['太陽能電壓', '太陽能'],
+    ];
+
+    function escapeText(s) {
+        const d = document.createElement('div');
+        d.textContent = s == null ? '' : String(s);
+        return d.innerHTML;
+    }
+
+    async function fetchWaterQuality() {
+        if (!currentDeviceId) return;
+        try {
+            const token = localStorage.getItem('token');
+            const resp = await fetch(`${API_BASE}/api/devices/${currentDeviceId}/sysinfo?token=${token}`);
+            if (!resp.ok) return;
+            const data = await resp.json();
+            updateWaterQualityDisplay(data.water_quality);
+        } catch (e) {
+            console.debug('[WQ] Fetch error:', e);
+        }
+    }
+
+    function updateWaterQualityDisplay(wq) {
+        const section = document.getElementById('wqSection');
+        const indicator = document.getElementById('wqIndicator');
+        const statusText = document.getElementById('wqStatusText');
+        const rows = document.getElementById('wqRows');
+        if (!section || !rows) return;
+
+        if (!wq || !wq.enabled) {
+            section.style.display = 'none';
+            return;
+        }
+        section.style.display = '';
+        indicator.className = 'gps-indicator ' + (wq.online ? 'fixed' : 'lost');
+
+        const byName = {};
+        (wq.channels || []).forEach(c => { byName[c.name] = c; });
+
+        let tiles = '';
+        WQ_TILES.forEach(([name, label]) => {
+            const c = byName[name];
+            if (!c) return;
+            const pending = c.value == null;
+            const valueHtml = pending
+                ? `<div class="wq-value is-pending">${/^read/i.test(c.text || '') ? '讀取中' : escapeText(c.text || '--')}</div>`
+                : `<div class="wq-value">${escapeText(c.text)}${c.unit ? `<span class="wq-unit">${escapeText(c.unit)}</span>` : ''}</div>`;
+            tiles += `<div class="wq-tile"><div class="wq-label">${escapeText(label)}</div>${valueHtml}</div>`;
+        });
+
+        let power = '';
+        WQ_POWER.forEach(([name, label]) => {
+            const c = byName[name];
+            if (!c) return;
+            power += `<span>${escapeText(label)} <b>${escapeText(c.text)}${escapeText(c.unit || '')}</b></span>`;
+        });
+
+        rows.innerHTML = (tiles ? `<div class="wq-grid">${tiles}</div>` : '') +
+                         (power ? `<div class="wq-power">${power}</div>` : '');
+        section.classList.toggle('wq-stale', !wq.online);
+
+        statusText.textContent = wq.online
+            ? `更新 ${String(wq.device_time || '').split(' ').pop() || '--'}`
+            : '無回應';
+    }
+
+    function startWQPolling() {
+        fetchWaterQuality();
+        if (wqPollingInterval) clearInterval(wqPollingInterval);
+        wqPollingInterval = setInterval(fetchWaterQuality, 15000);
+    }
+
+    function stopWQPolling() {
+        if (wqPollingInterval) {
+            clearInterval(wqPollingInterval);
+            wqPollingInterval = null;
+        }
+        const section = document.getElementById('wqSection');
+        if (section) section.style.display = 'none';
+    }
+
     function startGPSPolling() {
+        startWQPolling();
+
         // Fetch immediately
         fetchGPSData();
 
@@ -634,6 +780,8 @@ if (typeof window.MuMuCamera === 'undefined') {
     }
 
     function stopGPSPolling() {
+        stopWQPolling();
+
         if (gpsPollingInterval) {
             clearInterval(gpsPollingInterval);
             gpsPollingInterval = null;
@@ -713,7 +861,40 @@ if (typeof window.MuMuCamera === 'undefined') {
             // Remove inline styles - CSS classes handle colors now
             statusElement.style.backgroundColor = '';
             statusElement.style.color = '';
+
+            updateVideoState(status, statusClass);
         }
+    }
+
+    /**
+     * Video stage overlay: spinner while connecting, message + retry on error.
+     * The LIVE badge is driven by the <video> 'playing' event (actual frames), not by status text.
+     */
+    function updateVideoState(status, statusClass) {
+        const stage = document.getElementById('videoStage');
+        const text = document.getElementById('videoStateText');
+        if (!stage || !text) return;
+
+        if (statusClass === 'status-connecting') {
+            stage.classList.remove('is-live', 'is-error');
+            text.textContent = status;
+        } else if (statusClass === 'status-error') {
+            stage.classList.remove('is-live');
+            stage.classList.add('is-error');
+            text.textContent = status.includes('離線') ? '裝置目前離線' : `無法取得畫面（${status}）`;
+        } else if (statusClass === 'status-default' && status.includes('斷線')) {
+            stage.classList.remove('is-live');
+            stage.classList.add('is-error');
+            text.textContent = '連線已中斷';
+        }
+    }
+
+    function updateSourceLabel() {
+        const el = document.getElementById('videoSourceLabel');
+        if (!el) return;
+        const cam = currentCamera === 'cam2' ? '攝影機 2' : '攝影機 1';
+        const q = currentQuality === 'hd' ? '高清 HD' : '流暢 SD';
+        el.textContent = `${cam} · ${q}`;
     }
 
 
@@ -784,6 +965,7 @@ if (typeof window.MuMuCamera === 'undefined') {
         currentCamera = cam;
         currentStreamSrc = getStreamSrc(currentCamera, currentQuality);
         console.log(`[stream] Camera → ${cam}, stream: ${currentStreamSrc}`);
+        updateSourceLabel();
 
         // Update camera button active state
         document.querySelectorAll('.stream-switch-btn[data-cam]').forEach(btn => {
@@ -801,6 +983,7 @@ if (typeof window.MuMuCamera === 'undefined') {
         currentQuality = quality;
         currentStreamSrc = getStreamSrc(currentCamera, currentQuality);
         console.log(`[stream] Quality → ${quality}, stream: ${currentStreamSrc}`);
+        updateSourceLabel();
 
         // Update quality button active state
         document.getElementById('btnSD').classList.toggle('active', quality === 'sd');
@@ -1014,6 +1197,109 @@ if (typeof window.MuMuCamera === 'undefined') {
         document.addEventListener('DOMContentLoaded', initControlsToggle);
     } else {
         initControlsToggle();
+    }
+
+    /**
+     * Video stage tools: LIVE badge, clock, snapshot, fullscreen, retry
+     */
+    function pad2(n) { return String(n).padStart(2, '0'); }
+
+    function initVideoStage() {
+        const stage = document.getElementById('videoStage');
+        const video = document.getElementById('remoteVideo');
+        if (!stage || !video) return;
+
+        // LIVE badge only when frames are actually playing
+        video.addEventListener('playing', () => {
+            stage.classList.add('is-live');
+            stage.classList.remove('is-error');
+        });
+        video.addEventListener('emptied', () => stage.classList.remove('is-live'));
+
+        // Header clock
+        const clock = document.getElementById('liveClock');
+        if (clock) {
+            const tick = () => {
+                const d = new Date();
+                clock.textContent = `${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ` +
+                    `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+            };
+            tick();
+            setInterval(tick, 1000);
+        }
+
+        // Retry
+        const retry = document.getElementById('videoRetryBtn');
+        if (retry) {
+            retry.addEventListener('click', () => {
+                if (currentDeviceId) {
+                    reconnectStream();
+                } else if (lastDeviceId) {
+                    window.initializeWebRTC(lastDeviceId);
+                }
+            });
+        }
+
+        // Snapshot → PNG download
+        const snap = document.getElementById('snapshotBtn');
+        if (snap) {
+            snap.addEventListener('click', () => {
+                if (!video.videoWidth) {
+                    showToast('目前沒有畫面可以截圖', 'warning');
+                    return;
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0);
+                const d = new Date();
+                const name = `${currentCamera}_${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}_` +
+                    `${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}.png`;
+                canvas.toBlob((blob) => {
+                    if (!blob) return;
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = name;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+                    showToast('已儲存截圖 ' + name, 'success');
+                }, 'image/png');
+            });
+        }
+
+        // Fullscreen (video + overlays)
+        const fs = document.getElementById('fullscreenBtn');
+        if (fs) {
+            const setIcon = () => {
+                const on = document.fullscreenElement === stage;
+                fs.innerHTML = `<i data-lucide="${on ? 'minimize' : 'maximize'}" style="width: 18px; height: 18px;"></i>`;
+                fs.title = on ? '離開全螢幕' : '全螢幕';
+                if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [fs] });
+            };
+            fs.addEventListener('click', async () => {
+                try {
+                    if (document.fullscreenElement) {
+                        await document.exitFullscreen();
+                    } else if (stage.requestFullscreen) {
+                        await stage.requestFullscreen();
+                    } else if (video.webkitEnterFullscreen) {
+                        video.webkitEnterFullscreen(); // iOS Safari
+                    }
+                } catch (e) {
+                    console.warn('[fullscreen]', e);
+                }
+            });
+            document.addEventListener('fullscreenchange', setIcon);
+            stage.addEventListener('dblclick', () => fs.click());
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initVideoStage);
+    } else {
+        initVideoStage();
     }
 
     console.log('[水下監視系統] webrtc.js loaded successfully');
